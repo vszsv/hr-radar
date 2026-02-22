@@ -1,0 +1,71 @@
+profiles:
+  event_agencies:
+    name: "Event агентства"
+    description: "Поиск кандидатов для event-агентств"
+    imap:
+      host: "imap.yandex.ru"
+      port: 993
+      user: "hr11@btl-agency.ru"
+      pass_env: "IMAP_PASS"
+    telegram:
+      bot_token_env: "TELEGRAM_BOT_TOKEN"
+      chat_id_env: "TELEGRAM_CHAT_ID"
+    jobs:
+      - name: "Account Director"
+        slug: "account_director"
+        prompt_file: "account_director.txt"
+        emoji: "🎯"
+        description: "Руководитель отдела BTL / Group Head / Account Director"
+        
+      - name: "Account Manager"  
+        slug: "account_manager"
+        prompt_file: "account_manager.txt"
+        emoji: "👔"
+        description: "Account Manager / Client Manager"
+        
+      - name: "Project Manager"
+        slug: "project_manager"
+        prompt_file: "project_manager.txt"
+        emoji: "📋"
+        description: "Project Manager / Руководитель проектов"
+        
+  btl_agencies:
+    name: "BTL агентства"
+    description: "Поиск кандидатов для BTL-агентств"
+    imap:
+      host: "imap.yandex.ru"
+      port: 993
+      user: "hrcp@btl-agency.ru"
+      pass_env: "IMAP_BTL_PASS"
+    telegram:
+      bot_token_env: "TELEGRAM_BOT_TOKEN"
+      chat_id_env: "TELEGRAM_CHAT_ID"
+    jobs:
+      - name: "Account Manager"
+        slug: "account_manager"
+        prompt_file: "account_manager.txt"
+        emoji: "👔"
+        description: "Account Manager / Client Manager"
+
+      - name: "Project Manager"
+        slug: "project_manager"
+        prompt_file: "project_manager.txt"
+        emoji: "📋"
+        description: "Project Manager / Руководитель проектов (с потенциалом в аккаунты)"
+
+# Общие настройки
+common:
+  openai:
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4o"
+    batch_size: 15
+    timeout: 60
+    temperature: 0.1
+  
+  schedule:
+    event_agencies: "09:00"  # UTC
+    btl_agencies: "09:30"   # UTC
+    
+  database:
+    base_path: "data"
+    suffix: ".db"

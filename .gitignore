@@ -1,0 +1,13 @@
+.env
+*.db
+*.db-journal
+data/
+venv/
+__pycache__/
+*.pyc
+hh_cookies.json
+*.log
+ms-playwright/
+node_modules/
+*.ogg
+*.mp3
