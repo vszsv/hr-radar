@@ -12,6 +12,16 @@
   - Support/operations роли → near (не target)
 - **Gemini 2.5 Flash vs GPT-4o:** Тестировали Gemini — слишком либеральный (18 target вместо 8), в 3 раза медленнее. Остались на GPT-4o.
 
+## 2026-02-24: Account Manager + Project Manager calibration for event/BTL
+- **Что:** Доработали промпты account_manager.txt и project_manager.txt по ручным комментариям Василия.
+- **Почему:** ЛЛМ смешивал роли (AD/AM/PM), пропускал overqualified и мусорные профили.
+- **Результат AM:** overqualified (AD-level), стажёры/нерелевантные профили отфильтрованы; выдача стала стабильнее для event+BTL.
+- **Результат PM:** добавлен пост-фильтр в run_multi_radar.py для жёсткого отсечения role mismatch (няня/финансовый директор/AM/Head-TeamLead/студсоюзы); финальная выборка Event PM: target 14, near 9.
+- **Техрешение:**
+  - prompt-level правила в project_manager.txt
+  - code-level safety net: `apply_project_manager_postfilter()` в run_multi_radar.py
+- **Принцип:** если промпт нестабилен на спорных кейсах, фиксируем критичные правила пост-фильтром в коде.
+
 Лог ключевых решений по проекту. Ведёт Давид 🎯 автоматически.
 
 ---

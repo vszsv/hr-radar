@@ -246,18 +246,26 @@ def parse_candidates_from_html(html: str, subject: str) -> List[Dict]:
         
         # Контекст вокруг ссылки для дополнительной инфы
         start, end = match.span()
-        context = text[max(0, start - 1200): min(len(text), end + 1200)]
-        
-        # Извлекаем последнее место работы и зарплату
-        last_job = ""
-        job_match = re.search(r"Последнее место работы[:\s]*([^<]+)", context, flags=re.I)
-        if job_match:
-            last_job = re.sub(r"\s+", " ", job_match.group(1).replace("&nbsp;", " ")).strip()
-        
-        salary = ""
-        salary_match = re.search(r"Уровень дохода[:\s]*([^<]+)", context, flags=re.I)
-        if salary_match:
-            salary = re.sub(r"\s+", " ", salary_match.group(1).replace("&nbsp;", " ")).strip()
+        context_start = max(0, start - 1200)
+        context = text[context_start: min(len(text), end + 1200)]
+        anchor_pos = start - context_start
+
+        # Ищем ближайшее к ссылке значение поля (а не первое в контексте),
+        # иначе при плотной верстке HH может подтянуться значение от соседнего кандидата.
+        def nearest_field(pattern: str) -> str:
+            best = None
+            best_dist = None
+            for m_field in re.finditer(pattern, context, flags=re.I):
+                dist = abs(m_field.start() - anchor_pos)
+                if best is None or dist < best_dist:
+                    best = m_field
+                    best_dist = dist
+            if not best:
+                return ""
+            return re.sub(r"\s+", " ", best.group(1).replace("&nbsp;", " ")).strip()
+
+        last_job = nearest_field(r"Последнее место работы[:\s]*([^<]+)")
+        salary = nearest_field(r"Уровень дохода[:\s]*([^<]+)")
         
         description = f"Автопоиск: {subject}"
         if last_job:
@@ -331,14 +339,17 @@ def score_candidates_for_job(candidates: List[Dict], job: JobConfig, openai_conf
             score = next((s for s in scores_array if s.get("index") == i), 
                         scores_array[i-1] if i-1 < len(scores_array) else {})
             
-            results.append({
+            item = {
                 "relevant": bool(score.get("relevant", False)),
                 "fit_type": score.get("fit_type", "not_fit"),
                 "confidence": float(score.get("confidence", 0)),
                 "reason": score.get("suggested_action", ""),
                 "job_slug": job.slug,
                 "job_name": job.name
-            })
+            }
+            if job.slug == 'project_manager':
+                item = apply_project_manager_postfilter(candidate, item)
+            results.append(item)
         
         return results
     
@@ -362,6 +373,35 @@ def score_candidates_for_job(candidates: List[Dict], job: JobConfig, openai_conf
             all_scores.extend([fallback_score(c, job) for c in batch])
     
     return all_scores
+
+
+def apply_project_manager_postfilter(candidate: Dict, score: Dict) -> Dict:
+    """Жёсткие пост-правила для PM (стабилизируют спорные кейсы LLM)."""
+    text = " ".join([
+        candidate.get('title', ''),
+        candidate.get('lastJob', ''),
+        candidate.get('description', ''),
+    ]).lower()
+
+    force_not_fit_keywords = [
+        'няня', 'гуверн', 'воспитател',
+        'финансовый директор',
+        'студенческий союз', 'мирэа',
+        'senior account manager', 'аккаунт менеджер', 'account manager',
+        'руководитель event-отдел', 'руководитель event отдела',
+        'руководитель event-департамент', 'руководитель event департамента',
+        'event team leader', 'head of events', 'team lead',
+    ]
+    if any(k in text for k in force_not_fit_keywords):
+        return {
+            **score,
+            'relevant': False,
+            'fit_type': 'not_fit',
+            'confidence': max(float(score.get('confidence', 0)), 0.8),
+            'reason': 'PM post-filter: role mismatch/overqualified/not-fit'
+        }
+
+    return score
 
 
 def fallback_score(candidate: Dict, job: Optional[JobConfig] = None) -> Dict:
