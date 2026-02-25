@@ -56,17 +56,26 @@ def parse_candidates_from_html(html: str, subject: str) -> List[Dict]:
 
         # Берём небольшой контекст вокруг ссылки — там обычно есть зарплата/последняя работа.
         s, e = m.span()
-        block = text[max(0, s - 1200): min(len(text), e + 1200)]
+        block_start = max(0, s - 1200)
+        block = text[block_start: min(len(text), e + 1200)]
+        anchor_pos = s - block_start
 
-        last_job = ""
-        jm = re.search(r"Последнее место работы[:\s]*([^<]+)", block, flags=re.I)
-        if jm:
-            last_job = re.sub(r"\s+", " ", jm.group(1).replace("&nbsp;", " ")).strip()
+        # Берём ближайшее к ссылке поле, а не первое в блоке,
+        # чтобы не тащить значения соседнего кандидата.
+        def nearest_field(pattern: str) -> str:
+            best = None
+            best_dist = None
+            for mf in re.finditer(pattern, block, flags=re.I):
+                dist = abs(mf.start() - anchor_pos)
+                if best is None or dist < best_dist:
+                    best = mf
+                    best_dist = dist
+            if not best:
+                return ""
+            return re.sub(r"\s+", " ", best.group(1).replace("&nbsp;", " ")).strip()
 
-        salary = ""
-        sm = re.search(r"Уровень дохода[:\s]*([^<]+)", block, flags=re.I)
-        if sm:
-            salary = re.sub(r"\s+", " ", sm.group(1).replace("&nbsp;", " ")).strip()
+        last_job = nearest_field(r"Последнее место работы[:\s]*([^<]+)")
+        salary = nearest_field(r"Уровень дохода[:\s]*([^<]+)")
 
         description = f"Автопоиск: {subject}"
         if last_job:

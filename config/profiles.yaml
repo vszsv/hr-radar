@@ -41,6 +41,12 @@ profiles:
       bot_token_env: "TELEGRAM_BOT_TOKEN"
       chat_id_env: "TELEGRAM_CHAT_ID"
     jobs:
+      - name: "Account Director"
+        slug: "account_director"
+        prompt_file: "account_director.txt"
+        emoji: "🎯"
+        description: "Руководитель клиентского направления / Group Head / Account Director (BTL)"
+
       - name: "Account Manager"
         slug: "account_manager"
         prompt_file: "account_manager.txt"

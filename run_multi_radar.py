@@ -11,6 +11,7 @@ import json
 import sqlite3
 import imaplib
 import email
+import email.utils
 import datetime
 import requests
 import re
@@ -190,21 +191,39 @@ def fetch_candidates_from_email(profile: ProfileConfig) -> List[Dict]:
         mail.login(profile.imap_user, profile.imap_pass)
         mail.select('INBOX')
         
-        # Поиск писем за сегодня от HH
-        today = datetime.datetime.now(datetime.UTC).strftime("%d-%b-%Y")
-        search_criteria = f'(FROM "hh.ru" SINCE "{today}")'
-        
+        # Берем кандидатов за последние 24 часа.
+        # IMAP не умеет точный интервал в часах через SEARCH,
+        # поэтому расширяем выборку на 2 дня и фильтруем по Date заголовку письма.
+        now_utc = datetime.datetime.now(datetime.UTC)
+        cutoff_utc = now_utc - datetime.timedelta(hours=24)
+        since_date = (now_utc - datetime.timedelta(days=2)).strftime("%d-%b-%Y")
+        search_criteria = f'(FROM "hh.ru" SINCE "{since_date}")'
+
         status, messages = mail.search(None, search_criteria)
         if status != 'OK':
             return candidates
-            
+
         for num in messages[0].split():
             status, msg_data = mail.fetch(num, '(RFC822)')
             if status != 'OK':
                 continue
-                
+
             msg = email.message_from_bytes(msg_data[0][1])
             subject = msg.get('Subject', '')
+
+            # Отсекаем письма старше 24 часов
+            msg_date_raw = msg.get('Date')
+            if msg_date_raw:
+                try:
+                    msg_dt = email.utils.parsedate_to_datetime(msg_date_raw)
+                    if msg_dt.tzinfo is None:
+                        msg_dt = msg_dt.replace(tzinfo=datetime.UTC)
+                    msg_dt_utc = msg_dt.astimezone(datetime.UTC)
+                    if msg_dt_utc < cutoff_utc:
+                        continue
+                except Exception:
+                    # Если дату не распарсили — не блокируем письмо
+                    pass
             
             # Парсим HTML-тело письма
             html_body = ""
@@ -597,9 +616,13 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         return
     
     # Скоринг для каждой роли
+    # Дедупликация между ролями: если кандидат уже «точное совпадение» (target, conf>=0.75)
+    # в предыдущей роли — исключаем его из точных в следующих ролях.
+    # Порядок ролей в profiles.yaml = приоритет (AD → AM → PM).
     started = datetime.datetime.now(datetime.UTC).isoformat()
     openai_config = config_data['common']['openai']
     job_results = {}
+    cross_role_exact_links: set = set()  # ссылки кандидатов, уже попавших в «точные» ранних ролей
     
     for job in active_jobs:
         print(f"\n🧠 Scoring candidates for {job.name}")
@@ -611,7 +634,24 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         scored_candidates = []
         for candidate, score in zip(unique_candidates, scores):
             merged = {**candidate, **score}
+            
+            # Кросс-ролевая дедупликация: понижаем до near_target/not_fit,
+            # если этот кандидат уже «точный» в более приоритетной роли
+            link = merged.get('normalized_link', '')
+            if link in cross_role_exact_links:
+                if merged.get('fit_type') == 'target' and merged.get('confidence', 0) >= 0.75:
+                    merged['fit_type'] = 'near_target'
+                    merged['reason'] = (merged.get('reason', '') +
+                        ' [понижен: уже точное совпадение в более приоритетной роли]').strip()
+            
             scored_candidates.append(merged)
+        
+        # Запоминаем «точных» этой роли для следующих
+        for sc in scored_candidates:
+            if sc.get('fit_type') == 'target' and sc.get('confidence', 0) >= 0.75:
+                lnk = sc.get('normalized_link', '')
+                if lnk:
+                    cross_role_exact_links.add(lnk)
         
         job_results[job.slug] = scored_candidates
         
