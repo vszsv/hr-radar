@@ -616,13 +616,9 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         return
     
     # Скоринг для каждой роли
-    # Дедупликация между ролями: если кандидат уже «точное совпадение» (target, conf>=0.75)
-    # в предыдущей роли — исключаем его из точных в следующих ролях.
-    # Порядок ролей в profiles.yaml = приоритет (AD → AM → PM).
     started = datetime.datetime.now(datetime.UTC).isoformat()
     openai_config = config_data['common']['openai']
     job_results = {}
-    cross_role_exact_links: set = set()  # ссылки кандидатов, уже попавших в «точные» ранних ролей
     
     for job in active_jobs:
         print(f"\n🧠 Scoring candidates for {job.name}")
@@ -634,24 +630,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         scored_candidates = []
         for candidate, score in zip(unique_candidates, scores):
             merged = {**candidate, **score}
-            
-            # Кросс-ролевая дедупликация: понижаем до near_target/not_fit,
-            # если этот кандидат уже «точный» в более приоритетной роли
-            link = merged.get('normalized_link', '')
-            if link in cross_role_exact_links:
-                if merged.get('fit_type') == 'target' and merged.get('confidence', 0) >= 0.75:
-                    merged['fit_type'] = 'near_target'
-                    merged['reason'] = (merged.get('reason', '') +
-                        ' [понижен: уже точное совпадение в более приоритетной роли]').strip()
-            
             scored_candidates.append(merged)
-        
-        # Запоминаем «точных» этой роли для следующих
-        for sc in scored_candidates:
-            if sc.get('fit_type') == 'target' and sc.get('confidence', 0) >= 0.75:
-                lnk = sc.get('normalized_link', '')
-                if lnk:
-                    cross_role_exact_links.add(lnk)
         
         job_results[job.slug] = scored_candidates
         
