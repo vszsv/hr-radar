@@ -68,13 +68,18 @@ class FriendWorkAPI:
             return []
         
         try:
-            r = self.session.get(f'{self.base_url}/api/jobs', timeout=30)
+            r = self.session.get(
+                f'{self.base_url}/api/jobs',
+                json={"paging": {"page": 0, "count": limit}},
+                timeout=30
+            )
             r.raise_for_status()
             jobs_data = r.json()
-            # API returns array directly, not wrapped in 'jobs' key
+            if isinstance(jobs_data, dict):
+                return jobs_data.get('Items', jobs_data.get('items', []))
             if isinstance(jobs_data, list):
-                return jobs_data[:limit] if limit else jobs_data
-            return jobs_data.get('jobs', [])
+                return jobs_data[:limit]
+            return []
         except Exception as e:
             print(f"Error fetching jobs: {e}")
             return []
