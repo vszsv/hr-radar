@@ -92,7 +92,9 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
             fw_h = get_fw_headers()
             check = requests.get(f'https://api.friend.work/Candidate/{cid}/CandidateHistories',
                                  headers=fw_h, timeout=15)
-            if check.status_code == 200 and (check.json().get('CandidateHistories') is not None or check.json().get('Result') is not None):
+            check_data = check.json()
+            histories = check_data.get('CandidateHistories') or []
+            if check.status_code == 200 and len(histories) > 0:
                 return {"ok": False, "candidate_id": cid,
                         "message": f"Дубликат: [{cid}]"}
             # Candidate deleted — remove from log and re-import
@@ -229,7 +231,7 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         "Citizenship": citizenship or '',
         "RelocationReadiness": 0 if (hh.get('relocation', {}).get('type', {}) or {}).get('id') == 'no_relocation' else 1,
         "BusinessTrip": 1 if (hh.get('business_trip_readiness') or {}).get('id') == 'ready' else 0,
-        "DuplicateProcessing": "Ignore",
+        "DuplicateProcessing": "Replace",
     }
     
     if dl_types:
@@ -260,12 +262,23 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         candidate_id = actual.get('CandidateId')
         
         if not candidate_id:
+            msg = actual.get('Message', '')
             dupes = actual.get('Duplicates') or actual.get('DuplicateCandidateIds')
             if dupes:
+                dupe_id = dupes[0] if isinstance(dupes, list) else dupes
+                return {"ok": False, "candidate_id": dupe_id,
+                        "message": f"Дубликат: [{dupe_id}]"}
+            if 'duplicates' in msg.lower():
+                # FW detected duplicate but didn't return ID (Replace mode)
+                # Check our local log for the FW link
+                local_cid = import_log.get(hh_url)
+                if local_cid:
+                    return {"ok": False, "candidate_id": local_cid,
+                            "message": f"Дубликат: [{local_cid}]"}
                 return {"ok": False, "candidate_id": None,
-                        "message": f"Дубликат: {dupes}"}
+                        "message": "Дубликат в FW (кандидат уже существует)"}
             return {"ok": False, "candidate_id": None,
-                    "message": f"FW error: {actual.get('Message', 'Unknown')} | {r.text[:300]}"}
+                    "message": f"FW error: {msg} | {r.text[:300]}"}
         
         # 14. Assign to vacancy
         time.sleep(0.5)
