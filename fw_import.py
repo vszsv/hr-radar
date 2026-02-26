@@ -28,12 +28,11 @@ def get_fw_open_vacancies() -> list:
     page = 0
     while True:
         payload = {
-            "statuses": ["open"],
             "paging": {"page": page, "count": 100}
         }
         try:
             r = requests.get('https://api.friend.work/jobs', headers=h,
-                             data=json.dumps(payload), timeout=60)
+                             json=payload, timeout=60)
             if r.status_code != 200:
                 break
             items = r.json().get('Items', [])
@@ -48,7 +47,7 @@ def get_fw_open_vacancies() -> list:
             break
     
     return [{"id": j["jobId"], "name": j.get("name", "").strip(), "status": j.get("status", "")}
-            for j in all_items]
+            for j in all_items if (j.get("status") or "").lower() == "open"]
 
 
 def get_fw_candidate_url(candidate_id: int) -> str:
