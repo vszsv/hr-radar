@@ -275,7 +275,7 @@ def handle_update(update, config, controls):
             for i, (rid, res) in enumerate(zip(resume_ids, results), 1):
                 if res["ok"]:
                     cid = res.get("candidate_id", "")
-                    fw_url = f"https://app.friend.work/candidates/{cid}" if cid else ""
+                    fw_url = f"https://app.friend.work/Candidate/Profile/{cid}" if cid else ""
                     lines.append(f'✅ {i}. <a href="{fw_url}">Открыть в FW</a> — Импортирован')
                 elif "Дубликат" in res.get("message", ""):
                     # Extract duplicate ID and link
@@ -283,7 +283,7 @@ def handle_update(update, config, controls):
                     dupe_match = re.search(r'\[(\d+)\]', res["message"])
                     if dupe_match:
                         dupe_id = dupe_match.group(1)
-                        fw_url = f"https://app.friend.work/candidates/{dupe_id}"
+                        fw_url = f"https://app.friend.work/Candidate/Profile/{dupe_id}"
                         lines.append(f'🔄 {i}. <a href="{fw_url}">Уже в FW (ID:{dupe_id})</a>')
                     else:
                         lines.append(f"🔄 {i}. {rid[:12]}... — {res['message']}")

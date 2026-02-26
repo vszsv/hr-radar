@@ -53,8 +53,19 @@ def get_fw_open_vacancies() -> list:
 
 def get_fw_candidate_url(candidate_id: int) -> str:
     """Get FriendWork URL for a candidate."""
-    return f"https://app.friend.work/candidates/{candidate_id}"
+    return f"https://app.friend.work/Candidate/Profile/{candidate_id}"
 
+
+def _load_import_log() -> dict:
+    """Load local import log {hh_url: fw_candidate_id}."""
+    log_path = Path(__file__).parent / "data" / "fw_imports.json"
+    if log_path.exists():
+        return json.loads(log_path.read_text())
+    return {}
+
+def _save_import_log(log: dict):
+    log_path = Path(__file__).parent / "data" / "fw_imports.json"
+    log_path.write_text(json.dumps(log, ensure_ascii=False))
 
 def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
     """Import a single HH resume into FriendWork vacancy.
@@ -63,11 +74,35 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
     """
     from hh_api import get_resume
     
-    # 1. Fetch HH resume
+    # 0. Fetch HH resume first (need alternate_url for dedup)
+    from hh_api import get_resume
     try:
         hh = get_resume(hh_resume_id)
     except Exception as e:
         return {"ok": False, "candidate_id": None, "message": f"HH error: {e}"}
+    
+    hh_url = hh.get('alternate_url', '')
+    
+    # Check local duplicate log by HH URL
+    import_log = _load_import_log()
+    if hh_url and hh_url in import_log:
+        cid = import_log[hh_url]
+        # Verify candidate still exists in FW
+        try:
+            fw_h = get_fw_headers()
+            check = requests.get(f'https://api.friend.work/Candidate/{cid}/CandidateHistories',
+                                 headers=fw_h, timeout=15)
+            if check.status_code == 200 and (check.json().get('CandidateHistories') is not None or check.json().get('Result') is not None):
+                return {"ok": False, "candidate_id": cid,
+                        "message": f"Дубликат: [{cid}]"}
+            # Candidate deleted — remove from log and re-import
+            del import_log[hh_url]
+            _save_import_log(import_log)
+        except:
+            return {"ok": False, "candidate_id": cid,
+                    "message": f"Дубликат: [{cid}]"}
+    
+    # 1. HH resume already fetched above
     
     # 2. Download photo as base64
     photo_b64 = None
@@ -80,40 +115,72 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         except:
             pass
     
-    # 3. Build resume HTML
-    resume_parts = []
-    for exp in (hh.get('experience') or []):
-        start = exp.get('start', '')
-        end = exp.get('end', '') or 'н.в.'
-        company = exp.get('company', '')
-        position = exp.get('position', '')
-        area = (exp.get('area') or {}).get('name', '')
-        industries = [i.get('name', '') for i in (exp.get('industries') or [])]
-        desc = (exp.get('description') or '').replace('\n', '<br>')
-        
-        resume_parts.append(f"<h3>{position}</h3>")
-        resume_parts.append(f"<p><b>{company}</b>{', ' + area if area else ''} | {start} — {end}</p>")
-        if industries:
-            resume_parts.append(f"<p><i>{'; '.join(industries)}</i></p>")
-        if desc:
-            resume_parts.append(f"<p>{desc}</p>")
-        resume_parts.append("<hr>")
+    # 3. Download PDF from HH API and convert to Data URI for FileContent
+    pdf_data_uri = None
+    try:
+        from hh_api import hh_request
+        pdf_url = hh.get('download', {}).get('pdf', {}).get('url', '')
+        if pdf_url:
+            r_pdf = hh_request('GET', pdf_url)
+            if r_pdf.status_code == 200:
+                pdf_b64 = base64.b64encode(r_pdf.content).decode('utf-8')
+                pdf_data_uri = f"data:application/pdf;base64,{pdf_b64}"
+    except Exception as e:
+        logger.warning(f"PDF download failed: {e}")
     
-    resume_html = '\n'.join(resume_parts)
+    # 4. Build structured Experience array (FW format)
+    experience_list = []
+    for exp in (hh.get('experience') or []):
+        start = exp.get('start', '')  # "2024-09-01"
+        end = exp.get('end', '')      # "2025-12-01" or ""
+        
+        from_year, from_month, to_year, to_month = 0, 0, 0, 0
+        if start and len(start) >= 7:
+            from_year = int(start[:4])
+            from_month = int(start[5:7]) - 1  # FW: jan=0
+        if end and len(end) >= 7:
+            to_year = int(end[:4])
+            to_month = int(end[5:7]) - 1
+
+        area = (exp.get('area') or {}).get('name', '')
+        
+        experience_list.append({
+            "Company": exp.get('company', ''),
+            "Position": exp.get('position', ''),
+            "City": area,
+            "FromMonth": from_month,
+            "FromYear": from_year,
+            "ToMonth": to_month,
+            "ToYear": to_year,
+            "Description": exp.get('description', '') or '',
+        })
+    
+    # Build Education array (FW format)
+    education_list_fw = []
+    edu_level_map = {'bachelor': 0, 'master': 0, 'doctor': 0, 'candidate': 0,
+                     'secondary': 3, 'special_secondary': 2, 'unfinished_higher': 1}
+    for e in (hh.get('education', {}).get('primary') or []):
+        level_id = (e.get('education_level') or {}).get('id', '')
+        fw_level = edu_level_map.get(level_id, 0)
+        education_list_fw.append({
+            "Level": fw_level,
+            "University": e.get('name', ''),
+            "Faculty": f"{e.get('organization', '')} — {e.get('result', '')}",
+            "GraduateYear": e.get('year', 0),
+        })
+    
+    # Languages (FW format: {"Русский": "родной"})
+    langs_dict = {}
+    for l in (hh.get('language') or []):
+        name = l.get('name', '')
+        level = (l.get('level') or {}).get('name', '')
+        if name:
+            langs_dict[name] = level
     
     # 4. Build skills
     skills = [s if isinstance(s, str) else s.get('name', '') for s in (hh.get('skill_set') or [])]
     
-    # 5. Education
-    education_list = []
-    for e in (hh.get('education', {}).get('primary') or []):
-        education_list.append({
-            "Name": e.get('result', ''),
-            "Organization": f"{e.get('name', '')} — {e.get('organization', '')}",
-            "Year": e.get('year', 0)
-        })
-    
-    # 6. Extract telegram from about text
+    # 5. Extract telegram from about text
     about = hh.get('skills', '') or ''
     contacts = []
     social_links = {}
@@ -143,22 +210,23 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
     
     # 12. Build candidate
     candidate = {
-        "FirstName": hh.get('first_name') or "Кандидат",
-        "LastName": hh.get('last_name') or (hh.get('title', 'HH')[:50]),
+        "FirstName": hh.get('first_name') or f"HH-{hh_resume_id[:8].upper()}",
+        "LastName": hh.get('last_name') or "Без имени",
         "MiddleName": hh.get('middle_name') or "",
         "Sex": sex,
-        "Age": hh.get('age', 0),
-        "BirthDate": hh.get('birth_date', ''),
+        "Age": hh.get('age') or 0,
+        "BirthDate": hh.get('birth_date') or '',
         "City": (hh.get('area') or {}).get('name', ''),
         "Position": hh.get('title', ''),
         "Salary": salary_amount,
         "ExternalLink": hh.get('alternate_url', ''),
         "Source": "HeadHunter",
         "AddWay": "Активный поиск",
-        "Resume": resume_html,
-        "AboutMe": about,
-        "Skills": skills,
-        "Citizenship": citizenship,
+        "Experience": experience_list,
+        "Education": education_list_fw,
+        "AboutMe": about or '',
+        "Skills": skills or [],
+        "Citizenship": citizenship or '',
         "RelocationReadiness": 0 if (hh.get('relocation', {}).get('type', {}) or {}).get('id') == 'no_relocation' else 1,
         "BusinessTrip": 1 if (hh.get('business_trip_readiness') or {}).get('id') == 'ready' else 0,
         "DuplicateProcessing": "Ignore",
@@ -170,12 +238,17 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         candidate["Contacts"] = contacts
     if social_links:
         candidate["SocialLinks"] = social_links
-    if education_list:
-        candidate["Education"] = education_list
+    if langs_dict:
+        candidate["Langs"] = langs_dict
+    metro = (hh.get('metro') or {}).get('name', '')
+    if metro:
+        candidate["Subway"] = metro
     if schedule_val:
         candidate["Schedule"] = schedule_val
     if photo_b64:
-        candidate["Photo"] = photo_b64
+        candidate["Photo"] = f"data:image/jpeg;base64,{photo_b64}"
+    if pdf_data_uri:
+        candidate["FileContent"] = pdf_data_uri
     
     # 13. Send to FriendWork
     fw_h = get_fw_headers()
@@ -192,7 +265,7 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
                 return {"ok": False, "candidate_id": None,
                         "message": f"Дубликат: {dupes}"}
             return {"ok": False, "candidate_id": None,
-                    "message": f"FW error: {actual.get('Message', r.text[:200])}"}
+                    "message": f"FW error: {actual.get('Message', 'Unknown')} | {r.text[:300]}"}
         
         # 14. Assign to vacancy
         time.sleep(0.5)
@@ -204,6 +277,10 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         )
         
         if r2.status_code == 200:
+            # Save to local import log by HH URL
+            if hh_url:
+                import_log[hh_url] = candidate_id
+                _save_import_log(import_log)
             return {"ok": True, "candidate_id": candidate_id,
                     "message": "Импортирован"}
         else:
