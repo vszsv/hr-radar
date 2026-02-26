@@ -47,7 +47,9 @@ def get_fw_open_vacancies() -> list:
             break
     
     return [{"id": j["jobId"], "name": j.get("name", "").strip(), "status": j.get("status", "")}
-            for j in all_items if (j.get("status") or "").lower() == "open"]
+            for j in all_items
+            if (j.get("status") or "").lower() == "open"
+            and "Перева" in ((j.get("responsibleAccount") or {}).get("lastName") or "")]
 
 
 def get_fw_candidate_url(candidate_id: int) -> str:
