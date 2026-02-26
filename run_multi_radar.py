@@ -449,6 +449,38 @@ def fallback_score(candidate: Dict, job: Optional[JobConfig] = None) -> Dict:
     }
 
 
+def _get_hh_extra(link: str) -> dict:
+    """Fetch extra candidate info from HH API. Returns empty dict on failure."""
+    if not link or 'hh.ru/resume/' not in link:
+        return {}
+    try:
+        m = re.search(r'hh\.ru/resume/([a-f0-9]+)', link)
+        if not m:
+            return {}
+        resume_id = m.group(1)
+        
+        from hh_api import get_resume
+        data = get_resume(resume_id)
+        
+        sal = data.get('salary') or {}
+        sal_amount = sal.get('amount')
+        
+        total_exp = (data.get('total_experience') or {}).get('months')
+        
+        work_formats = [wf.get('name', '') for wf in (data.get('work_format') or [])]
+        
+        return {
+            'age': data.get('age'),
+            'city': (data.get('area') or {}).get('name', ''),
+            'salary': sal_amount,
+            'total_exp_months': total_exp,
+            'work_format': ', '.join(work_formats) if work_formats else '',
+        }
+    except Exception as e:
+        print(f"HH API enrich failed for {link}: {e}")
+        return {}
+
+
 def send_telegram_report(profile: ProfileConfig, job_results: Dict[str, List[Dict]], jobs_for_report: Optional[List[JobConfig]] = None):
     """Отправляет отчёт в Telegram"""
     
@@ -517,7 +549,7 @@ def send_telegram_report(profile: ProfileConfig, job_results: Dict[str, List[Dic
 
 
 def send_job_candidates(profile: ProfileConfig, job: JobConfig, candidates: List[Dict], title: str):
-    """Отправляет список кандидатов для конкретной роли"""
+    """Отправляет список кандидатов для конкретной роли с кнопкой импорта в FW"""
     
     if not candidates:
         return
@@ -551,14 +583,53 @@ def send_job_candidates(profile: ProfileConfig, job: JobConfig, candidates: List
     if current_chunk.strip():
         chunks.append(current_chunk)
     
-    # Отправляем чанки
-    for chunk in chunks:
-        requests.post(url, json={
+    # Collect HH resume links for import button
+    hh_links = []
+    for c in candidates:
+        link = c.get('link', '')
+        if 'hh.ru/resume/' in link:
+            import re
+            m = re.search(r'hh\.ru/resume/([a-f0-9]+)', link)
+            if m:
+                hh_links.append(m.group(1))
+    
+    # Save candidate batch for import
+    import hashlib
+    batch_id = hashlib.md5(json.dumps(hh_links, sort_keys=True).encode()).hexdigest()[:8]
+    batch_file = Path(__file__).parent / "data" / f"batch_{batch_id}.json"
+    batch_file.parent.mkdir(parents=True, exist_ok=True)
+    batch_file.write_text(json.dumps({
+        "resume_ids": hh_links,
+        "job_name": job.name,
+        "title": title,
+        "profile": profile.name,
+        "created": time.strftime("%Y-%m-%d %H:%M"),
+    }, ensure_ascii=False), encoding="utf-8")
+    
+    # Build import button
+    import_button = None
+    if hh_links:
+        fit_label = "целевых" if "Целев" in title else "кандидатов"
+        import_button = {
+            "inline_keyboard": [[
+                {"text": f"📥 Импорт {len(hh_links)} {fit_label} в FriendWork",
+                 "callback_data": f"fw_pick|{batch_id}"}
+            ]]
+        }
+    
+    # Отправляем чанки (кнопку — на последний)
+    for i, chunk in enumerate(chunks):
+        payload = {
             "chat_id": profile.telegram_chat,
             "text": chunk,
             "parse_mode": "HTML", 
             "disable_web_page_preview": True
-        }, timeout=30).raise_for_status()
+        }
+        # Attach button to last chunk
+        if i == len(chunks) - 1 and import_button:
+            payload["reply_markup"] = import_button
+        
+        requests.post(url, json=payload, timeout=30).raise_for_status()
 
 
 def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dict[str, Any]] = None):

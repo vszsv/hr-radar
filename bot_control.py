@@ -3,6 +3,7 @@ import os
 import json
 import time
 import requests
+import threading
 from pathlib import Path
 import yaml
 
@@ -159,6 +160,161 @@ def handle_update(update, config, controls):
         p, slug = parts[1], parts[2]
         cur = controls["profiles"][p]["jobs"].get(slug, True)
         controls["profiles"][p]["jobs"][slug] = not cur
+
+    # === FriendWork import: pick vacancy ===
+    if parts[0] == "fw_pick" and len(parts) >= 2:
+        batch_id = parts[1]
+        batch_file = BASE / "data" / f"batch_{batch_id}.json"
+        if not batch_file.exists():
+            tg("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "❌ Пакет кандидатов не найден (устарел?)", "show_alert": True})
+            return controls
+        
+        # Load open vacancies from FriendWork
+        from fw_import import get_fw_open_vacancies
+        vacancies = get_fw_open_vacancies()
+        if not vacancies:
+            tg("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "❌ Нет открытых вакансий в FriendWork", "show_alert": True})
+            return controls
+        
+        batch_data = json.loads(batch_file.read_text())
+        count = len(batch_data.get("resume_ids", []))
+        
+        # Show vacancy picker — split into pages of 15 if needed
+        page = 0
+        if len(parts) == 3:
+            try:
+                page = int(parts[2])
+            except:
+                page = 0
+        
+        PAGE_SIZE = 15
+        total_pages = (len(vacancies) + PAGE_SIZE - 1) // PAGE_SIZE
+        start = page * PAGE_SIZE
+        page_vacancies = vacancies[start:start + PAGE_SIZE]
+        
+        buttons = []
+        for v in page_vacancies:
+            name = v['name'][:35]
+            buttons.append([{
+                "text": f"📋 {name}",
+                "callback_data": f"fw_go|{batch_id}|{v['id']}"
+            }])
+        
+        # Navigation buttons
+        nav_row = []
+        if page > 0:
+            nav_row.append({"text": "⬅️ Назад", "callback_data": f"fw_pick|{batch_id}|{page-1}"})
+        if page < total_pages - 1:
+            nav_row.append({"text": "Ещё ➡️", "callback_data": f"fw_pick|{batch_id}|{page+1}"})
+        if nav_row:
+            buttons.append(nav_row)
+        buttons.append([{"text": "❌ Отмена", "callback_data": "fw_cancel"}])
+        
+        page_text = f" (стр. {page+1}/{total_pages})" if total_pages > 1 else ""
+        
+        # Edit existing message or send new
+        if cq.get("message", {}).get("text", "").startswith("📥"):
+            tg("editMessageText", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": f"📥 <b>Импорт {count} кандидатов в FriendWork</b>{page_text}\n\nВыбери вакансию:",
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": buttons}
+            })
+        else:
+            tg("sendMessage", {
+                "chat_id": chat_id,
+                "text": f"📥 <b>Импорт {count} кандидатов в FriendWork</b>{page_text}\n\nВыбери вакансию:",
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": buttons}
+            })
+        tg("answerCallbackQuery", {"callback_query_id": cq["id"]})
+        return controls
+    
+    # === FriendWork import: execute ===
+    if parts[0] == "fw_go" and len(parts) == 3:
+        batch_id = parts[1]
+        job_id = int(parts[2])
+        batch_file = BASE / "data" / f"batch_{batch_id}.json"
+        
+        if not batch_file.exists():
+            tg("answerCallbackQuery", {"callback_query_id": cq["id"], "text": "❌ Пакет не найден", "show_alert": True})
+            return controls
+        
+        batch_data = json.loads(batch_file.read_text())
+        resume_ids = batch_data.get("resume_ids", [])
+        
+        # Update button to show progress
+        tg("editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": f"⏳ Импортирую {len(resume_ids)} кандидатов... Это займёт ~{len(resume_ids) * 3} сек.",
+            "parse_mode": "HTML"
+        })
+        tg("answerCallbackQuery", {"callback_query_id": cq["id"]})
+        
+        # Run import in background thread
+        def do_import():
+            from fw_import import import_hh_to_fw
+            results = []
+            for rid in resume_ids:
+                try:
+                    res = import_hh_to_fw(rid, job_id)
+                    results.append(res)
+                except Exception as e:
+                    results.append({"ok": False, "candidate_id": None, "message": str(e)})
+                time.sleep(1.5)  # rate limit
+            
+            ok_count = sum(1 for r in results if r["ok"])
+            dupe_count = sum(1 for r in results if "Дубликат" in r.get("message", ""))
+            fail_count = len(results) - ok_count - dupe_count
+            
+            lines = [f"✅ <b>Импорт завершён</b>"]
+            lines.append(f"Успешно: {ok_count} | Дубли: {dupe_count} | Ошибки: {fail_count}")
+            
+            for i, (rid, res) in enumerate(zip(resume_ids, results), 1):
+                if res["ok"]:
+                    cid = res.get("candidate_id", "")
+                    fw_url = f"https://app.friend.work/candidates/{cid}" if cid else ""
+                    lines.append(f'✅ {i}. <a href="{fw_url}">Открыть в FW</a> — Импортирован')
+                elif "Дубликат" in res.get("message", ""):
+                    # Extract duplicate ID and link
+                    import re
+                    dupe_match = re.search(r'\[(\d+)\]', res["message"])
+                    if dupe_match:
+                        dupe_id = dupe_match.group(1)
+                        fw_url = f"https://app.friend.work/candidates/{dupe_id}"
+                        lines.append(f'🔄 {i}. <a href="{fw_url}">Уже в FW (ID:{dupe_id})</a>')
+                    else:
+                        lines.append(f"🔄 {i}. {rid[:12]}... — {res['message']}")
+                else:
+                    lines.append(f"❌ {i}. {rid[:12]}... — {res['message']}")
+            
+            tg("editMessageText", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": "\n".join(lines),
+                "parse_mode": "HTML"
+            })
+            
+            # Cleanup batch file
+            try:
+                batch_file.unlink()
+            except:
+                pass
+        
+        threading.Thread(target=do_import, daemon=True).start()
+        return controls
+    
+    # === FriendWork import: cancel ===
+    if parts[0] == "fw_cancel":
+        tg("editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": "❌ Импорт отменён",
+        })
+        tg("answerCallbackQuery", {"callback_query_id": cq["id"]})
+        return controls
 
     save_controls(controls)
     send_or_edit_menu(config, controls, chat_id, message_id)
