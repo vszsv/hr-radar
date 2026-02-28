@@ -111,6 +111,17 @@ def _cache_hh_resume(resume_id: str, resume_data: dict):
     path = HH_RESUMES_DIR / f"{resume_id}.json"
     if not path.exists():
         path.write_text(json.dumps(resume_data, ensure_ascii=False, indent=2))
+    # Cache photo
+    photo_url = (resume_data.get('photo') or {}).get('500') or (resume_data.get('photo') or {}).get('medium')
+    if photo_url:
+        photo_path = HH_RESUMES_DIR / f"{resume_id}.jpg"
+        if not photo_path.exists():
+            try:
+                import requests as req
+                r = req.get(photo_url, timeout=15)
+                if r.status_code == 200:
+                    photo_path.write_bytes(r.content)
+            except: pass
 
 def _load_cached_resume(resume_id: str):
     path = HH_RESUMES_DIR / f"{resume_id}.json"
