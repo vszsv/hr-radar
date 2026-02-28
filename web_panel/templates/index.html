@@ -154,7 +154,7 @@
                       <div>
                         <button @click="S(p.id,j.slug).open = !S(p.id,j.slug).open"
                           class="text-[11px] text-blue-600 mb-1">
-                          <span x-text="S(p.id,j.slug).open ? '▼ Скрыть' : '▶ Показать (' + S(p.id,j.slug).cands.total + ')'"></span>
+                          <span x-text="S(p.id,j.slug).open ? '▼ Скрыть' : '▶ Показать (' + S(p.id,j.slug).cands.relevant + ' отобранных)'"></span>
                         </button>
                         <div x-show="S(p.id,j.slug).open" x-cloak class="space-y-1.5">
                           <template x-for="(c, ci) in S(p.id,j.slug).cands.candidates.filter(x=>x.relevant)" :key="'c'+ci">

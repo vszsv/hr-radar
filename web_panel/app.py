@@ -26,6 +26,41 @@ if env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 ACCESS_KEY = os.environ.get("HR_PANEL_KEY", "hrpanel2026")
+HH_RESUMES_DIR = Path(__file__).parent.parent / "data" / "hh_resumes"
+HH_RESUMES_DIR.mkdir(parents=True, exist_ok=True)
+JOURNEY_DB = Path(__file__).parent.parent / "data" / "candidate_journey.db"
+
+def _init_journey_db():
+    conn = sqlite3.connect(str(JOURNEY_DB))
+    conn.execute("""CREATE TABLE IF NOT EXISTS journey (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hh_link TEXT NOT NULL,
+        resume_id TEXT,
+        profile_id TEXT,
+        job_slug TEXT,
+        -- primary screening
+        primary_date TEXT,
+        primary_score REAL,
+        primary_fit_type TEXT,
+        primary_reason TEXT,
+        -- deep scoring
+        deep_date TEXT,
+        deep_model TEXT,
+        deep_prompt TEXT,
+        deep_score INTEGER,
+        deep_status TEXT,
+        deep_reason TEXT,
+        -- FW import
+        fw_candidate_id INTEGER,
+        fw_vacancy_id INTEGER,
+        fw_import_date TEXT,
+        fw_status TEXT,
+        UNIQUE(hh_link, profile_id, job_slug)
+    )""")
+    conn.commit()
+    conn.close()
+
+_init_journey_db()
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 DATA_DIR = Path(__file__).parent.parent / "data"
 PROMPTS_DIR = Path(__file__).parent / "prompts"
@@ -56,6 +91,32 @@ def load_profiles():
     if PROFILES_PATH.exists():
         return yaml.safe_load(PROFILES_PATH.read_text())
     return {"profiles": {}}
+
+def _save_journey(data: dict):
+    """Upsert a candidate journey record."""
+    conn = sqlite3.connect(str(JOURNEY_DB))
+    keys = list(data.keys())
+    vals = list(data.values())
+    placeholders = ','.join(['?'] * len(keys))
+    cols = ','.join(keys)
+    update_parts = ','.join(f"{k}=excluded.{k}" for k in keys if k not in ('hh_link','profile_id','job_slug'))
+    conn.execute(
+        f"INSERT INTO journey ({cols}) VALUES ({placeholders}) ON CONFLICT(hh_link,profile_id,job_slug) DO UPDATE SET {update_parts}",
+        vals
+    )
+    conn.commit()
+    conn.close()
+
+def _cache_hh_resume(resume_id: str, resume_data: dict):
+    path = HH_RESUMES_DIR / f"{resume_id}.json"
+    if not path.exists():
+        path.write_text(json.dumps(resume_data, ensure_ascii=False, indent=2))
+
+def _load_cached_resume(resume_id: str):
+    path = HH_RESUMES_DIR / f"{resume_id}.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    return None
 
 scoring_state = {}
 deep_scoring_state = {}  # keyed by "profileId.jobSlug"
@@ -531,31 +592,39 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
             cand_name = ""
             resume_id = link.rstrip("/").split("/")[-1].split("?")[0]
             
-            # Fetch from HH API
-            if hh_get_resume:
+            # Fetch from HH API (or cache)
+            resume = _load_cached_resume(resume_id)
+            if not resume and hh_get_resume:
                 try:
                     resume = hh_get_resume(resume_id)
                     if resume and not resume.get("errors"):
-                        title = resume.get("title", "")
-                        area = resume.get("area", {}).get("name", "")
-                        salary = resume.get("salary")
-                        sal_text = f"{salary['amount']} {salary.get('currency','')}" if salary else "не указана"
-                        total_exp = resume.get("total_experience") or {}
-                        exp_months = total_exp.get("months", 0)
-                        fn = resume.get('first_name') or ''
-                        ln = resume.get('last_name') or ''
-                        cand_name = f"{ln} {fn}".strip()
-                        if not cand_name or cand_name == 'None None' or cand_name == 'None':
-                            cand_name = title or f"HH-{resume_id[:8]}"
-                        cand_text = f"Кандидат: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
-                        for exp in resume.get("experience", [])[:5]:
-                            cand_text += f"\nОпыт: {exp.get('company','')} — {exp.get('position','')} ({exp.get('start','')}-{exp.get('end','н.в.')})\n"
-                            if exp.get("description"):
-                                cand_text += f"  {exp['description'][:300]}\n"
-                        skills = resume.get("skill_set", [])
-                        if skills:
-                            sk = [s if isinstance(s, str) else s.get("name","") for s in skills]
-                            cand_text += f"\nНавыки: {', '.join(sk[:15])}\n"
+                        _cache_hh_resume(resume_id, resume)
+                    else:
+                        resume = None
+                except:
+                    resume = None
+            if resume and not resume.get("errors"):
+                try:
+                    title = resume.get("title", "")
+                    area = resume.get("area", {}).get("name", "")
+                    salary = resume.get("salary")
+                    sal_text = f"{salary['amount']} {salary.get('currency','')}" if salary else "не указана"
+                    total_exp = resume.get("total_experience") or {}
+                    exp_months = total_exp.get("months", 0)
+                    fn = resume.get('first_name') or ''
+                    ln = resume.get('last_name') or ''
+                    cand_name = f"{ln} {fn}".strip()
+                    if not cand_name or cand_name == 'None None' or cand_name == 'None':
+                        cand_name = title or f"HH-{resume_id[:8]}"
+                    cand_text = f"Кандидат: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
+                    for exp in resume.get("experience", [])[:5]:
+                        cand_text += f"\nОпыт: {exp.get('company','')} — {exp.get('position','')} ({exp.get('start','')}-{exp.get('end','н.в.')})\n"
+                        if exp.get("description"):
+                            cand_text += f"  {exp['description'][:300]}\n"
+                    skills = resume.get("skill_set", [])
+                    if skills:
+                        sk = [s if isinstance(s, str) else s.get("name","") for s in skills]
+                        cand_text += f"\nНавыки: {', '.join(sk[:15])}\n"
                 except Exception as e:
                     cand_text = f"Ошибка загрузки резюме: {e}"
             
@@ -587,6 +656,20 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
             result["candidateName"] = cand_name or f"HH-{resume_id[:8]}"
             result["fw_status"] = fw_status
             result["resume_id"] = resume_id
+            
+            # Save journey
+            parts = job_key.split(".", 1)
+            try:
+                _save_journey({
+                    "hh_link": link, "resume_id": resume_id,
+                    "profile_id": parts[0] if len(parts) > 0 else "",
+                    "job_slug": parts[1] if len(parts) > 1 else "",
+                    "deep_date": datetime.now(timezone.utc).isoformat(),
+                    "deep_model": model, "deep_prompt": prompt_name,
+                    "deep_score": score, "deep_status": fw_status,
+                    "deep_reason": result.get("reason", "")
+                })
+            except: pass
             
             state["results"].append(result)
             state["progress"] = idx + 1
@@ -673,6 +756,17 @@ async def api_import_scored(request: Request, key: str = Query("")):
                 imported += 1
             else:
                 duplicates += 1
+            
+            # Update journey with FW import info
+            try:
+                conn = sqlite3.connect(str(JOURNEY_DB))
+                conn.execute(
+                    "UPDATE journey SET fw_candidate_id=?, fw_vacancy_id=?, fw_import_date=?, fw_status=? WHERE hh_link=?",
+                    (cid, vacancy_id, datetime.now(timezone.utc).isoformat(), fw_status, link)
+                )
+                conn.commit()
+                conn.close()
+            except: pass
             
             results.append({
                 "link": link, "ok": is_new, "candidate_id": cid,
