@@ -542,8 +542,12 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
                         sal_text = f"{salary['amount']} {salary.get('currency','')}" if salary else "не указана"
                         total_exp = resume.get("total_experience") or {}
                         exp_months = total_exp.get("months", 0)
-                        cand_name = f"{resume.get('last_name', '')} {resume.get('first_name', '')}".strip()
-                        cand_text = f"Имя: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
+                        fn = resume.get('first_name') or ''
+                        ln = resume.get('last_name') or ''
+                        cand_name = f"{ln} {fn}".strip()
+                        if not cand_name or cand_name == 'None None' or cand_name == 'None':
+                            cand_name = title or f"HH-{resume_id[:8]}"
+                        cand_text = f"Кандидат: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
                         for exp in resume.get("experience", [])[:5]:
                             cand_text += f"\nОпыт: {exp.get('company','')} — {exp.get('position','')} ({exp.get('start','')}-{exp.get('end','н.в.')})\n"
                             if exp.get("description"):
