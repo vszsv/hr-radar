@@ -195,20 +195,24 @@ async def api_vacancies(key: str = Query("")):
 
 # ─── API: Today's results from email screening ───
 @app.get("/api/today/{profile_id}/{job_slug}")
-async def api_today_results(profile_id: str, job_slug: str, key: str = Query("")):
+async def api_today_results(profile_id: str, job_slug: str, key: str = Query(""), date: str = Query("")):
     check_key(key)
     db_path = DATA_DIR / f"{profile_id}.db"
     if not db_path.exists():
-        return {"candidates": [], "total": 0, "relevant": 0}
+        return {"candidates": [], "total": 0, "relevant": 0, "date": ""}
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    target_date = date if date else datetime.now(timezone.utc).strftime("%Y-%m-%d")
     cur.execute(
         "SELECT candidate_title, last_job, salary, normalized_link, reason, confidence, relevant, fit_type "
-        "FROM scored_candidates WHERE run_date >= ? AND job_slug = ? ORDER BY relevant DESC, confidence DESC",
-        (today, job_slug)
+        "FROM scored_candidates WHERE date(run_date) = ? AND job_slug = ? ORDER BY relevant DESC, confidence DESC",
+        (target_date, job_slug)
     )
     rows = cur.fetchall()
+    # Also return available dates
+    dates = [r[0] for r in cur.execute(
+        "SELECT DISTINCT date(run_date) FROM scored_candidates WHERE job_slug = ? ORDER BY 1 DESC LIMIT 7", (job_slug,)
+    ).fetchall()]
     conn.close()
     candidates = []
     for r in rows:
@@ -219,7 +223,7 @@ async def api_today_results(profile_id: str, job_slug: str, key: str = Query("")
     relevant = sum(1 for c in candidates if c["relevant"])
     target = sum(1 for c in candidates if c["relevant"] and c["fit_type"] == "target")
     near = sum(1 for c in candidates if c["relevant"] and c["fit_type"] != "target")
-    return {"candidates": candidates, "total": len(candidates), "relevant": relevant, "target": target, "near": near}
+    return {"candidates": candidates, "total": len(candidates), "relevant": relevant, "target": target, "near": near, "date": target_date, "dates": dates}
 
 # ─── API: Import candidates to FriendWork ───
 @app.post("/api/import")
