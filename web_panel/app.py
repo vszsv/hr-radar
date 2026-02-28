@@ -58,6 +58,7 @@ def load_profiles():
     return {"profiles": {}}
 
 scoring_state = {}
+deep_scoring_state = {}  # keyed by "profileId.jobSlug"
 
 @asynccontextmanager
 async def lifespan(app):
@@ -490,6 +491,194 @@ async def _run_scoring(vacancy_id: int, model: str, prompt_name: str):
         state["status"] = "done"
     except Exception as e:
         scoring_state[vacancy_id] = {"status": "error", "error": str(e)}
+
+# ─── API: Deep Scoring (from HH links, no FW) ───
+@app.post("/api/deep-scoring/start")
+async def deep_scoring_start(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    job_key = body.get("job_key", "")  # "profileId.jobSlug"
+    links = body.get("links", [])
+    model = body.get("model", load_config().get("default_model", "gpt-5.2"))
+    prompt_name = body.get("prompt", "default_am")
+    if not links:
+        return JSONResponse({"error": "No links provided"}, status_code=400)
+    if job_key in deep_scoring_state and deep_scoring_state[job_key].get("status") == "running":
+        return JSONResponse({"error": "Already running"}, status_code=409)
+    deep_scoring_state[job_key] = {"status": "running", "progress": 0, "total": len(links), "results": [], "model": model}
+    asyncio.create_task(_run_deep_scoring(job_key, links, model, prompt_name))
+    return {"status": "started", "total": len(links)}
+
+async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: str):
+    try:
+        from openai import OpenAI
+        state = deep_scoring_state[job_key]
+        prompt_path = PROMPTS_DIR / f"{prompt_name}.txt"
+        prompt = prompt_path.read_text() if prompt_path.exists() else "Оцени кандидата."
+        
+        hh_get_resume = None
+        try:
+            from hh_api import get_resume as _hh_get
+            hh_get_resume = _hh_get
+        except: pass
+        
+        oai = OpenAI(api_key=OPENAI_KEY)
+        json_fmt = 'Ответь СТРОГО JSON без markdown: {"verdict": "одобрен" или "отказ", "score": 1-10, "reason": "причина до 80 символов"}'
+        cfg = load_config()
+        
+        for idx, link in enumerate(links):
+            cand_text = ""
+            cand_name = ""
+            resume_id = link.rstrip("/").split("/")[-1].split("?")[0]
+            
+            # Fetch from HH API
+            if hh_get_resume:
+                try:
+                    resume = hh_get_resume(resume_id)
+                    if resume and not resume.get("errors"):
+                        title = resume.get("title", "")
+                        area = resume.get("area", {}).get("name", "")
+                        salary = resume.get("salary")
+                        sal_text = f"{salary['amount']} {salary.get('currency','')}" if salary else "не указана"
+                        total_exp = resume.get("total_experience") or {}
+                        exp_months = total_exp.get("months", 0)
+                        cand_name = f"{resume.get('last_name', '')} {resume.get('first_name', '')}".strip()
+                        cand_text = f"Имя: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
+                        for exp in resume.get("experience", [])[:5]:
+                            cand_text += f"\nОпыт: {exp.get('company','')} — {exp.get('position','')} ({exp.get('start','')}-{exp.get('end','н.в.')})\n"
+                            if exp.get("description"):
+                                cand_text += f"  {exp['description'][:300]}\n"
+                        skills = resume.get("skill_set", [])
+                        if skills:
+                            sk = [s if isinstance(s, str) else s.get("name","") for s in skills]
+                            cand_text += f"\nНавыки: {', '.join(sk[:15])}\n"
+                except Exception as e:
+                    cand_text = f"Ошибка загрузки резюме: {e}"
+            
+            if not cand_text:
+                cand_text = f"Резюме HH: {link}"
+            
+            # Score
+            try:
+                resp = oai.chat.completions.create(
+                    model=model, temperature=0.1, max_completion_tokens=200,
+                    messages=[{"role": "system", "content": prompt}, {"role": "user", "content": f"Оцени кандидата:\n\n{cand_text}\n\n{json_fmt}"}]
+                )
+                raw = resp.choices[0].message.content.strip()
+                result = json.loads(raw.replace('```json','').replace('```','').strip())
+            except Exception as e:
+                result = {"verdict": "error", "score": 0, "reason": str(e)[:80]}
+            
+            score = result.get("score", 0)
+            if score >= cfg.get("score_threshold_approve", 7):
+                fw_status = "Одобрен ИИ"
+            elif 0 < score < cfg.get("score_threshold_reject", 4):
+                fw_status = "Отказ ИИ"
+            elif 0 < score:
+                fw_status = "Просмотрен ИИ"
+            else:
+                fw_status = "Новый"
+            
+            result["link"] = link
+            result["candidateName"] = cand_name or f"HH-{resume_id[:8]}"
+            result["fw_status"] = fw_status
+            result["resume_id"] = resume_id
+            
+            state["results"].append(result)
+            state["progress"] = idx + 1
+            await asyncio.sleep(0.3)
+        
+        state["status"] = "done"
+    except Exception as e:
+        deep_scoring_state[job_key] = {"status": "error", "error": str(e)}
+
+@app.get("/api/deep-scoring/{job_key}/stream")
+async def deep_scoring_stream(job_key: str, key: str = Query("")):
+    check_key(key)
+    async def gen():
+        last = -1
+        while True:
+            state = deep_scoring_state.get(job_key, {"status": "idle"})
+            progress = state.get("progress", 0)
+            if progress != last or state["status"] in ("done", "error"):
+                yield {"event": "update", "data": json.dumps(state, ensure_ascii=False)}
+                last = progress
+            if state["status"] in ("done", "error", "idle"):
+                break
+            await asyncio.sleep(1)
+    return EventSourceResponse(gen())
+
+# ─── API: Import scored candidates to FW ───
+@app.post("/api/import-scored")
+async def api_import_scored(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    vacancy_id = body.get("vacancy_id")
+    candidates = body.get("candidates", [])  # [{link, fw_status, score, reason, candidateName}, ...]
+    model = body.get("model", "gpt-5.2")
+    if not vacancy_id or not candidates:
+        return JSONResponse({"error": "vacancy_id and candidates required"}, status_code=400)
+    
+    from fw_import import import_hh_to_fw, extract_resume_id_from_url, get_fw_open_vacancies
+    import requests as req_lib
+    from fw_import import get_fw_headers
+    
+    vacancy_names = {}
+    try:
+        for v in get_fw_open_vacancies():
+            vacancy_names[v['id']] = v['name']
+    except: pass
+    
+    headers = get_fw_headers()
+    results = []
+    imported = 0
+    duplicates = 0
+    
+    for cand in candidates:
+        link = cand.get("link", "")
+        resume_id = extract_resume_id_from_url(link)
+        if not resume_id:
+            results.append({"link": link, "ok": False, "message": "Bad link"})
+            continue
+        
+        fw_status = cand.get("fw_status", "Новый")
+        score = cand.get("score", 0)
+        reason = cand.get("reason", "")
+        comment = f"[AI {model}] Оценка: {score}/10 — {reason}"
+        
+        try:
+            res = import_hh_to_fw(resume_id, vacancy_id)
+            cid = res.get("candidate_id")
+            is_new = res.get("ok", False)
+            
+            # Set status in FW
+            if cid and fw_status != "Новый":
+                try:
+                    req_lib.post(
+                        f"https://api.friend.work/Candidate/{cid}/CandidateHistories/set",
+                        headers=headers, timeout=15,
+                        json={"Name": fw_status, "JobId": vacancy_id, "Description": comment}
+                    )
+                except: pass
+            
+            job_names = []
+            if res.get("job_ids"):
+                job_names = [vacancy_names.get(jid, f"#{jid}") for jid in res["job_ids"]]
+            
+            if is_new:
+                imported += 1
+            else:
+                duplicates += 1
+            
+            results.append({
+                "link": link, "ok": is_new, "candidate_id": cid,
+                "fw_status": fw_status, "vacancies": job_names,
+                "message": res.get("message", "")
+            })
+        except Exception as e:
+            results.append({"link": link, "ok": False, "message": str(e)[:100]})
+    
+    return {"results": results, "imported": imported, "duplicates": duplicates, "total": len(results)}
 
 # ─── API: Config ───
 @app.get("/api/config")

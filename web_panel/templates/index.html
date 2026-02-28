@@ -10,7 +10,6 @@
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="panel()" x-init="init()">
 
-<!-- Header -->
 <header class="bg-white shadow-sm sticky top-0 z-50">
   <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
     <h1 class="text-lg font-bold text-gray-800">🎯 HR Radar</h1>
@@ -48,7 +47,7 @@
           <div class="text-xs text-gray-500">Всего подходящих</div>
         </div>
       </div>
-      <template x-if="stat.by_job && stat.by_job.length">
+      <template x-if="stat.by_job?.length">
         <div class="space-y-1">
           <div class="text-xs text-gray-400 font-medium">По ролям (сегодня):</div>
           <template x-for="j in stat.by_job" :key="j.job">
@@ -59,18 +58,16 @@
           </template>
         </div>
       </template>
-      <div class="text-xs text-gray-400 mt-2" x-text="stat.last_run ? 'Последний прогон: ' + stat.last_run.slice(0,16).replace('T',' ') : ''"></div>
     </div>
   </template>
   <div x-show="!dashboard.length" class="text-center text-gray-400 py-8">Загрузка...</div>
 </div>
 
-<!-- ═══ UNIFIED SCREENING ═══ -->
+<!-- ═══ SCREENING ═══ -->
 <div x-show="tab==='screening'" x-cloak>
-  
-  <!-- Profile/On-Off controls -->
   <template x-for="p in profiles" :key="p.id">
     <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+      <!-- Profile header -->
       <div class="flex items-center justify-between mb-3">
         <div>
           <h3 class="font-semibold text-gray-700" x-text="p.name"></h3>
@@ -79,154 +76,93 @@
         <div class="flex gap-2">
           <button @click="toggle(p.id, 'report_enabled')" class="px-3 py-1 rounded-full text-xs font-medium transition"
             :class="p.report_enabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'"
-            x-text="p.report_enabled ? '📣 Отчёт ON' : '🔕 Отчёт OFF'"></button>
+            x-text="p.report_enabled ? '📣 ON' : '🔕 OFF'"></button>
           <button @click="toggle(p.id, 'enabled')" class="px-3 py-1 rounded-full text-xs font-medium transition"
             :class="p.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
             x-text="p.enabled ? '✅ Вкл' : '❌ Выкл'"></button>
         </div>
       </div>
-      
+
       <!-- Jobs -->
       <div class="space-y-4">
         <template x-for="j in p.jobs" :key="j.slug">
           <div class="border border-gray-200 rounded-lg overflow-hidden">
-            <!-- Job header -->
+            <!-- Job header + toggle -->
             <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
               <span class="text-sm font-medium" x-text="j.emoji + ' ' + j.name"></span>
               <button @click="toggle(p.id, j.slug)" class="px-2 py-0.5 rounded text-xs font-medium"
                 :class="j.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
                 x-text="j.enabled ? '✅' : '❌'"></button>
             </div>
-            
+
             <div class="p-3 space-y-3">
-              <!-- Направляющая: промпт + вакансия -->
+
+              <!-- ═══ НАПРАВЛЯЮЩАЯ ═══ -->
               <div class="bg-blue-50 rounded-lg p-2.5 space-y-2">
-                <div class="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Направляющая</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div class="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">⚙️ Направляющая</div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <div class="text-[10px] text-blue-600 mb-0.5">Системный промпт:</div>
-                    <select @change="setRoutePrompt(p.id, j.slug, 'prompt', $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                    <div class="text-[10px] text-blue-600 mb-0.5">Промпт:</div>
+                    <select @change="setRoutePrompt(p.id, j.slug, $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
                       <template x-for="pr in prompts" :key="pr.name">
                         <option :value="pr.name" :selected="getRoutePrompt(p.id, j.slug)===pr.name" x-text="pr.name"></option>
                       </template>
                     </select>
                   </div>
                   <div>
-                    <div class="text-[10px] text-blue-600 mb-0.5">Вакансия FriendWork:</div>
-                    <select @change="setRoute(p.id + '.' + j.slug, $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
-                      <option value="">— Не привязана —</option>
+                    <div class="text-[10px] text-blue-600 mb-0.5">Вакансия FW:</div>
+                    <select @change="setRoute(p.id+'.'+j.slug, $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                      <option value="">— Нет —</option>
                       <template x-for="v in vacancies" :key="v.id">
-                        <option :value="v.id" :selected="routes[p.id + '.' + j.slug]==v.id" x-text="v.name"></option>
+                        <option :value="v.id" :selected="routes[p.id+'.'+j.slug]==v.id" x-text="v.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="text-[10px] text-blue-600 mb-0.5">Модель:</div>
+                    <select x-model="selectedModel" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                      <template x-for="m in models" :key="m.id">
+                        <option :value="m.id" x-text="m.name"></option>
                       </template>
                     </select>
                   </div>
                 </div>
               </div>
-              
-              <!-- ── ПЕРВИЧНЫЙ ОТБОР ── -->
-              <div x-init="loadToday(p.id, j.slug, true)">
+
+              <!-- ═══ 1. ПЕРВИЧНЫЙ ОТБОР ═══ -->
+              <div x-init="loadPrimary(p.id, j.slug)">
                 <div class="flex items-center justify-between mb-2">
-                  <div class="text-xs font-bold text-gray-700 uppercase tracking-wide">📋 Первичный отбор</div>
-                  <!-- Date picker -->
-                  <div class="flex items-center gap-1">
-                    <template x-if="todayState[p.id+'.'+j.slug]?.dates?.length > 1">
-                      <select @change="loadToday(p.id, j.slug, true, $event.target.value)" class="text-[11px] border rounded px-1.5 py-0.5">
-                        <template x-for="d in todayState[p.id+'.'+j.slug].dates" :key="d">
-                          <option :value="d" :selected="todayState[p.id+'.'+j.slug].currentDate===d" x-text="formatDate(d)"></option>
-                        </template>
-                      </select>
-                    </template>
-                  </div>
+                  <div class="text-xs font-bold text-gray-700">📋 1. Первичный отбор</div>
+                  <template x-if="S(p.id,j.slug).dates?.length > 0">
+                    <select @change="loadPrimary(p.id, j.slug, $event.target.value)" class="text-[11px] border rounded px-1.5 py-0.5">
+                      <template x-for="d in S(p.id,j.slug).dates" :key="d">
+                        <option :value="d" :selected="S(p.id,j.slug).currentDate===d" x-text="fmtDate(d)"></option>
+                      </template>
+                    </select>
+                  </template>
                 </div>
-                
-                <template x-if="todayState[p.id+'.'+j.slug]?.cands">
+
+                <template x-if="S(p.id,j.slug).cands">
                   <div>
-                    <!-- Counts -->
                     <div class="flex items-center gap-3 text-xs mb-2 flex-wrap">
-                      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">🎯 <span x-text="todayState[p.id+'.'+j.slug].cands.target"></span> точных</span>
-                      <span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">👤 <span x-text="todayState[p.id+'.'+j.slug].cands.near"></span> подходящих</span>
-                      <span class="text-gray-400" x-text="'из ' + todayState[p.id+'.'+j.slug].cands.total + ' всего'"></span>
+                      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-medium">🎯 <span x-text="S(p.id,j.slug).cands.target"></span></span>
+                      <span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">👤 <span x-text="S(p.id,j.slug).cands.near"></span></span>
+                      <span class="text-gray-400" x-text="'из ' + S(p.id,j.slug).cands.total"></span>
                     </div>
-                    
-                    <!-- Import buttons -->
-                    <template x-if="routes[p.id+'.'+j.slug] && todayState[p.id+'.'+j.slug].cands.relevant > 0">
-                      <div class="mb-2">
-                        <div class="flex gap-1.5 flex-wrap">
-                          <button x-show="todayState[p.id+'.'+j.slug].cands.target > 0" @click="importCandidates(p.id, j.slug, 'target')"
-                            :disabled="todayState[p.id+'.'+j.slug]?.importing"
-                            class="flex-1 min-w-0 text-[11px] font-medium py-1.5 px-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
-                            🎯 Импорт <span x-text="todayState[p.id+'.'+j.slug].cands.target"></span> точных
-                          </button>
-                          <button x-show="todayState[p.id+'.'+j.slug].cands.near > 0" @click="importCandidates(p.id, j.slug, 'near')"
-                            :disabled="todayState[p.id+'.'+j.slug]?.importing"
-                            class="flex-1 min-w-0 text-[11px] font-medium py-1.5 px-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50">
-                            👤 Импорт <span x-text="todayState[p.id+'.'+j.slug].cands.near"></span> подх.
-                          </button>
-                          <button @click="importCandidates(p.id, j.slug, 'all')"
-                            :disabled="todayState[p.id+'.'+j.slug]?.importing"
-                            class="flex-1 min-w-0 text-[11px] font-medium py-1.5 px-2 rounded-lg bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50">
-                            📥 Все <span x-text="todayState[p.id+'.'+j.slug].cands.relevant"></span>
-                          </button>
-                        </div>
-                        <div x-show="todayState[p.id+'.'+j.slug]?.importing" class="mt-1 text-xs text-gray-500">⏳ Импортирую...</div>
-                        <!-- Import results -->
-                        <template x-if="todayState[p.id+'.'+j.slug]?.importResults">
-                          <div class="mt-2 space-y-1">
-                            <div class="text-[11px] font-medium text-gray-600 mb-1" x-text="'Результат: ' + todayState[p.id+'.'+j.slug].importSummary"></div>
-                            <template x-for="(ir, ii) in todayState[p.id+'.'+j.slug].importResults" :key="ii">
-                              <div class="text-[11px] py-0.5 flex flex-wrap items-center gap-1">
-                                <span x-text="ir.ok ? '✅' : '🔄'"></span>
-                                <a x-show="ir.candidate_id" :href="'https://app.friend.work/Candidate/Profile/'+ir.candidate_id" target="_blank" class="text-blue-600 underline font-medium" x-text="'FW-'+ir.candidate_id"></a>
-                                <span x-show="ir.ok" class="text-green-600">импортирован</span>
-                                <span x-show="!ir.ok && ir.candidate_id" class="text-gray-500">дубликат</span>
-                                <template x-if="ir.vacancies && ir.vacancies.length">
-                                  <span class="text-[10px] text-purple-600 bg-purple-50 px-1 rounded" x-text="'📋 ' + ir.vacancies.join(', ')"></span>
-                                </template>
-                              </div>
-                            </template>
-                          </div>
-                        </template>
-                      </div>
-                    </template>
-                    
-                    <!-- Candidate list (expandable) -->
-                    <template x-if="todayState[p.id+'.'+j.slug].cands.total > 0">
+                    <!-- Expand candidates -->
+                    <template x-if="S(p.id,j.slug).cands.total > 0">
                       <div>
-                        <button @click="todayState[p.id+'.'+j.slug].open = !todayState[p.id+'.'+j.slug].open"
-                          class="text-[11px] text-blue-600 hover:text-blue-800 flex items-center gap-1 mb-1">
-                          <span x-text="todayState[p.id+'.'+j.slug].open ? '▼ Скрыть кандидатов' : '▶ Показать кандидатов (' + todayState[p.id+'.'+j.slug].cands.total + ')'"></span>
+                        <button @click="S(p.id,j.slug).open = !S(p.id,j.slug).open"
+                          class="text-[11px] text-blue-600 mb-1">
+                          <span x-text="S(p.id,j.slug).open ? '▼ Скрыть' : '▶ Показать (' + S(p.id,j.slug).cands.total + ')'"></span>
                         </button>
-                        <div x-show="todayState[p.id+'.'+j.slug].open" x-cloak class="mt-1 space-y-1.5">
-                          <!-- Target -->
-                          <template x-if="todayState[p.id+'.'+j.slug].cands.target > 0">
-                            <div>
-                              <div class="text-[11px] font-bold text-green-700 mb-1">🎯 Точные попадания</div>
-                              <template x-for="(c, ci) in todayState[p.id+'.'+j.slug].cands.candidates.filter(x=>x.relevant && x.fit_type==='target')" :key="'t'+ci">
-                                <div class="bg-green-50 rounded-lg p-2.5 border border-green-200 mb-1.5">
-                                  <div class="text-xs font-semibold text-green-800" x-text="(ci+1)+'. '+c.title"></div>
-                                  <div class="text-[11px] text-green-700 mt-0.5">Соответствие: <b x-text="Math.round(c.confidence*100)+'%'"></b></div>
-                                  <div class="text-[11px] text-green-700">🏢 <span x-text="c.last_job || '—'"></span></div>
-                                  <div class="text-[11px] text-green-700">💰 <span x-text="c.salary || 'не указана'"></span></div>
-                                  <div class="text-[11px] text-green-700">🔗 <a :href="c.link" target="_blank" class="text-green-800 underline">Резюме на HH</a></div>
-                                  <div class="text-[10px] text-green-600 italic mt-0.5" x-text="'💬 ' + c.reason"></div>
-                                </div>
-                              </template>
-                            </div>
-                          </template>
-                          <!-- Near -->
-                          <template x-if="todayState[p.id+'.'+j.slug].cands.near > 0">
-                            <div>
-                              <div class="text-[11px] font-bold text-blue-600 mb-1 mt-2">👤 Подходящие</div>
-                              <template x-for="(c, ci) in todayState[p.id+'.'+j.slug].cands.candidates.filter(x=>x.relevant && x.fit_type!=='target')" :key="'n'+ci">
-                                <div class="bg-white rounded-lg p-2.5 border border-gray-200 mb-1.5">
-                                  <div class="text-xs font-medium text-gray-800" x-text="(ci+1)+'. '+c.title"></div>
-                                  <div class="text-[11px] text-gray-500 mt-0.5">Соответствие: <b x-text="Math.round(c.confidence*100)+'%'"></b></div>
-                                  <div class="text-[11px] text-gray-500">🏢 <span x-text="c.last_job || '—'"></span></div>
-                                  <div class="text-[11px] text-gray-500">💰 <span x-text="c.salary || 'не указана'"></span></div>
-                                  <div class="text-[11px] text-gray-500">🔗 <a :href="c.link" target="_blank" class="text-blue-600 underline">Резюме на HH</a></div>
-                                  <div class="text-[10px] text-gray-400 italic mt-0.5" x-text="'💬 ' + c.reason"></div>
-                                </div>
-                              </template>
+                        <div x-show="S(p.id,j.slug).open" x-cloak class="space-y-1.5">
+                          <template x-for="(c, ci) in S(p.id,j.slug).cands.candidates.filter(x=>x.relevant)" :key="'c'+ci">
+                            <div class="rounded-lg p-2 border mb-1" :class="c.fit_type==='target'?'bg-green-50 border-green-200':'bg-white border-gray-200'">
+                              <div class="text-xs font-medium" :class="c.fit_type==='target'?'text-green-800':'text-gray-800'" x-text="(ci+1)+'. '+c.title"></div>
+                              <div class="text-[11px] text-gray-500">🏢 <span x-text="c.last_job||'—'"></span> · 💰 <span x-text="c.salary||'—'"></span> · <span x-text="Math.round(c.confidence*100)+'%'"></span></div>
+                              <div class="text-[10px] text-gray-400 italic" x-text="'💬 '+c.reason"></div>
+                              <div class="text-[10px]">🔗 <a :href="c.link" target="_blank" class="text-blue-600 underline">HH</a></div>
                             </div>
                           </template>
                         </div>
@@ -234,72 +170,130 @@
                     </template>
                   </div>
                 </template>
-                <span x-show="todayState[p.id+'.'+j.slug]?.loading" class="text-xs text-gray-400">⏳</span>
-                <span x-show="!todayState[p.id+'.'+j.slug]?.loading && !todayState[p.id+'.'+j.slug]?.cands" class="text-xs text-gray-400">Нет данных</span>
+                <span x-show="S(p.id,j.slug).loading" class="text-xs text-gray-400">⏳</span>
               </div>
-              
-              <!-- ── ВТОРИЧНЫЙ ОТБОР ── -->
+
+              <!-- ═══ 2. ВТОРИЧНЫЙ ОТБОР ═══ -->
               <div class="border-t border-gray-200 pt-3">
-                <div class="flex items-center justify-between mb-2">
-                  <div class="text-xs font-bold text-gray-700 uppercase tracking-wide">🤖 Вторичный отбор (AI скоринг)</div>
-                </div>
-                
-                <!-- Scoring controls -->
+                <div class="text-xs font-bold text-gray-700 mb-2">🤖 2. Вторичный отбор (глубокий AI)</div>
+
                 <div class="flex gap-2 items-center flex-wrap mb-2">
-                  <select x-model="selectedModel" class="text-xs border rounded px-2 py-1">
-                    <template x-for="m in models" :key="m.id">
-                      <option :value="m.id" x-text="m.name"></option>
-                    </template>
-                  </select>
-                  <button @click="startScoringForJob(p.id, j.slug)" 
-                    :disabled="scoringRunning[p.id+'.'+j.slug]"
-                    class="px-3 py-1 bg-purple-600 text-white rounded-lg text-xs font-medium disabled:opacity-50">
-                    <span x-show="!scoringRunning[p.id+'.'+j.slug]">🤖 Запустить</span>
-                    <span x-show="scoringRunning[p.id+'.'+j.slug]" x-text="'⏳ ' + (scoringProg[p.id+'.'+j.slug]||'')"></span>
+                  <button @click="startDeep(p.id, j.slug, 'target')" x-show="S(p.id,j.slug).cands?.target > 0"
+                    :disabled="D(p.id,j.slug).running"
+                    class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-green-600 text-white disabled:opacity-50">
+                    🎯 Скорить <span x-text="S(p.id,j.slug).cands?.target||0"></span> точных
                   </button>
+                  <button @click="startDeep(p.id, j.slug, 'near')" x-show="S(p.id,j.slug).cands?.near > 0"
+                    :disabled="D(p.id,j.slug).running"
+                    class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-blue-500 text-white disabled:opacity-50">
+                    👤 Скорить <span x-text="S(p.id,j.slug).cands?.near||0"></span> подх.
+                  </button>
+                  <button @click="startDeep(p.id, j.slug, 'all')" x-show="S(p.id,j.slug).cands?.relevant > 0"
+                    :disabled="D(p.id,j.slug).running"
+                    class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-gray-600 text-white disabled:opacity-50">
+                    📥 Все <span x-text="S(p.id,j.slug).cands?.relevant||0"></span>
+                  </button>
+                  <span x-show="D(p.id,j.slug).running" class="text-xs text-purple-600 font-medium" x-text="'⏳ '+D(p.id,j.slug).prog"></span>
                 </div>
-                
-                <!-- Scoring results -->
-                <template x-if="scoringRes[p.id+'.'+j.slug]?.length">
+
+                <!-- Deep scoring results -->
+                <template x-if="D(p.id,j.slug).results?.length">
                   <div>
-                    <!-- Filters -->
-                    <div class="flex gap-1.5 mb-2 flex-wrap">
-                      <button @click="scoringFilter[p.id+'.'+j.slug]='all'" class="px-2 py-0.5 rounded-full text-[11px]"
-                        :class="(scoringFilter[p.id+'.'+j.slug]||'all')==='all'?'bg-gray-800 text-white':'bg-gray-100'">Все</button>
-                      <button @click="scoringFilter[p.id+'.'+j.slug]='approved'" class="px-2 py-0.5 rounded-full text-[11px]"
-                        :class="scoringFilter[p.id+'.'+j.slug]==='approved'?'bg-green-600 text-white':'bg-gray-100'">✅ Одобрен</button>
-                      <button @click="scoringFilter[p.id+'.'+j.slug]='reviewed'" class="px-2 py-0.5 rounded-full text-[11px]"
-                        :class="scoringFilter[p.id+'.'+j.slug]==='reviewed'?'bg-yellow-500 text-white':'bg-gray-100'">👁 Просмотрен</button>
-                      <button @click="scoringFilter[p.id+'.'+j.slug]='rejected'" class="px-2 py-0.5 rounded-full text-[11px]"
-                        :class="scoringFilter[p.id+'.'+j.slug]==='rejected'?'bg-red-600 text-white':'bg-gray-100'">❌ Отказ</button>
+                    <!-- Summary -->
+                    <div class="flex gap-2 text-[11px] mb-2 flex-wrap">
+                      <span class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">✅ <span x-text="D(p.id,j.slug).results.filter(r=>r.fw_status==='Одобрен ИИ').length"></span></span>
+                      <span class="bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">👁 <span x-text="D(p.id,j.slug).results.filter(r=>r.fw_status==='Просмотрен ИИ').length"></span></span>
+                      <span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">❌ <span x-text="D(p.id,j.slug).results.filter(r=>r.fw_status==='Отказ ИИ').length"></span></span>
                     </div>
-                    <!-- Result cards -->
+                    <!-- Filter -->
+                    <div class="flex gap-1.5 mb-2 flex-wrap">
+                      <button @click="D(p.id,j.slug).filter='all'" class="px-2 py-0.5 rounded-full text-[11px]"
+                        :class="(D(p.id,j.slug).filter||'all')==='all'?'bg-gray-800 text-white':'bg-gray-100'">Все</button>
+                      <button @click="D(p.id,j.slug).filter='approved'" class="px-2 py-0.5 rounded-full text-[11px]"
+                        :class="D(p.id,j.slug).filter==='approved'?'bg-green-600 text-white':'bg-gray-100'">✅</button>
+                      <button @click="D(p.id,j.slug).filter='reviewed'" class="px-2 py-0.5 rounded-full text-[11px]"
+                        :class="D(p.id,j.slug).filter==='reviewed'?'bg-yellow-500 text-white':'bg-gray-100'">👁</button>
+                      <button @click="D(p.id,j.slug).filter='rejected'" class="px-2 py-0.5 rounded-full text-[11px]"
+                        :class="D(p.id,j.slug).filter==='rejected'?'bg-red-600 text-white':'bg-gray-100'">❌</button>
+                    </div>
+                    <!-- Cards -->
                     <div class="space-y-1.5">
-                      <template x-for="r in filterScoring(p.id, j.slug)" :key="r.candidateId">
-                        <div class="border rounded-lg p-2.5" 
-                          :class="r.fw_status==='Одобрен ИИ'?'border-green-200 bg-green-50':r.fw_status==='Отказ ИИ'?'border-red-200 bg-red-50':r.fw_status==='Просмотрен ИИ'?'border-yellow-200 bg-yellow-50':'border-gray-200'">
+                      <template x-for="r in filterDeep(p.id, j.slug)" :key="r.link">
+                        <div class="border rounded-lg p-2" :class="r.fw_status==='Одобрен ИИ'?'border-green-200 bg-green-50':r.fw_status==='Отказ ИИ'?'border-red-200 bg-red-50':r.fw_status==='Просмотрен ИИ'?'border-yellow-200 bg-yellow-50':'border-gray-200'">
                           <div class="flex items-center justify-between">
-                            <div>
-                              <span class="font-medium text-xs" x-text="r.candidateName || 'CID-'+r.candidateId"></span>
-                              <a :href="'https://app.friend.work/Candidate/Profile/'+r.candidateId" target="_blank" class="text-[10px] text-blue-500 ml-1">↗FW</a>
-                            </div>
+                            <span class="font-medium text-xs" x-text="r.candidateName"></span>
                             <div class="flex items-center gap-1.5">
                               <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                                :class="r.fw_status==='Одобрен ИИ'?'bg-green-200 text-green-800':r.fw_status==='Отказ ИИ'?'bg-red-200 text-red-800':r.fw_status==='Просмотрен ИИ'?'bg-yellow-200 text-yellow-800':'bg-gray-200 text-gray-600'"
+                                :class="r.fw_status==='Одобрен ИИ'?'bg-green-200 text-green-800':r.fw_status==='Отказ ИИ'?'bg-red-200 text-red-800':r.fw_status==='Просмотрен ИИ'?'bg-yellow-200 text-yellow-800':'bg-gray-200'"
                                 x-text="r.fw_status"></span>
                               <span class="text-sm font-bold" :class="r.score>=7?'text-green-600':r.score>=4?'text-yellow-600':'text-red-500'" x-text="r.score+'/10'"></span>
                             </div>
                           </div>
-                          <p class="text-[10px] text-gray-500 mt-1" x-text="r.reason"></p>
+                          <p class="text-[10px] text-gray-500 mt-0.5" x-text="r.reason"></p>
+                          <a :href="r.link" target="_blank" class="text-[10px] text-blue-500">🔗 HH</a>
                         </div>
                       </template>
                     </div>
                   </div>
                 </template>
-                <div x-show="!scoringRes[p.id+'.'+j.slug]?.length && !scoringRunning[p.id+'.'+j.slug]" class="text-xs text-gray-400">
-                  Нажмите «Запустить» для AI-скоринга импортированных кандидатов
+                <div x-show="!D(p.id,j.slug).results?.length && !D(p.id,j.slug).running" class="text-xs text-gray-400">
+                  Запустите глубокий скоринг по кандидатам из первичного отбора
                 </div>
               </div>
+
+              <!-- ═══ 3. ИМПОРТ В FW ═══ -->
+              <template x-if="D(p.id,j.slug).results?.length && !D(p.id,j.slug).running">
+                <div class="border-t border-gray-200 pt-3">
+                  <div class="text-xs font-bold text-gray-700 mb-2">📤 3. Импорт в FriendWork</div>
+
+                  <template x-if="!routes[p.id+'.'+j.slug]">
+                    <div class="text-xs text-red-500">⚠️ Привяжите вакансию FW в направляющей</div>
+                  </template>
+                  <template x-if="routes[p.id+'.'+j.slug]">
+                    <div>
+                      <div class="flex gap-1.5 flex-wrap mb-2">
+                        <button @click="importScored(p.id, j.slug, 'approved')"
+                          x-show="D(p.id,j.slug).results.filter(r=>r.fw_status==='Одобрен ИИ').length"
+                          :disabled="D(p.id,j.slug).importing"
+                          class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-green-600 text-white disabled:opacity-50">
+                          ✅ Импорт <span x-text="D(p.id,j.slug).results.filter(r=>r.fw_status==='Одобрен ИИ').length"></span> одобренных
+                        </button>
+                        <button @click="importScored(p.id, j.slug, 'reviewed')"
+                          x-show="D(p.id,j.slug).results.filter(r=>r.fw_status==='Просмотрен ИИ').length"
+                          :disabled="D(p.id,j.slug).importing"
+                          class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-yellow-500 text-white disabled:opacity-50">
+                          👁 Импорт <span x-text="D(p.id,j.slug).results.filter(r=>r.fw_status==='Просмотрен ИИ').length"></span> просмотренных
+                        </button>
+                        <button @click="importScored(p.id, j.slug, 'all')"
+                          :disabled="D(p.id,j.slug).importing"
+                          class="text-[11px] font-medium py-1.5 px-3 rounded-lg bg-gray-600 text-white disabled:opacity-50">
+                          📥 Все <span x-text="D(p.id,j.slug).results.length"></span>
+                        </button>
+                      </div>
+                      <div x-show="D(p.id,j.slug).importing" class="text-xs text-gray-500">⏳ Импортирую...</div>
+                      <!-- Import results -->
+                      <template x-if="D(p.id,j.slug).importRes">
+                        <div class="mt-2 space-y-1">
+                          <div class="text-[11px] font-medium text-gray-600" x-text="D(p.id,j.slug).importSummary"></div>
+                          <template x-for="(ir, ii) in D(p.id,j.slug).importRes" :key="ii">
+                            <div class="text-[11px] py-0.5 flex flex-wrap items-center gap-1">
+                              <span x-text="ir.ok ? '✅' : '🔄'"></span>
+                              <a x-show="ir.candidate_id" :href="'https://app.friend.work/Candidate/Profile/'+ir.candidate_id" target="_blank" class="text-blue-600 underline font-medium" x-text="'FW-'+ir.candidate_id"></a>
+                              <span class="text-[10px] px-1 rounded" :class="ir.fw_status==='Одобрен ИИ'?'bg-green-100 text-green-700':ir.fw_status==='Просмотрен ИИ'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'" x-text="ir.fw_status"></span>
+                              <span x-show="ir.ok" class="text-green-600">новый</span>
+                              <span x-show="!ir.ok && ir.candidate_id" class="text-gray-500">дубликат</span>
+                              <template x-if="ir.vacancies?.length">
+                                <span class="text-[10px] text-purple-600 bg-purple-50 px-1 rounded" x-text="'📋 '+ir.vacancies.join(', ')"></span>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
             </div>
           </div>
         </template>
@@ -310,7 +304,6 @@
 
 <!-- ═══ SETTINGS ═══ -->
 <div x-show="tab==='settings'" x-cloak>
-  <!-- Model & thresholds -->
   <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="font-semibold text-gray-700 mb-3">Модель и пороги</h3>
     <div class="space-y-3">
@@ -333,27 +326,25 @@
         </div>
       </div>
       <div class="text-xs text-gray-400 bg-gray-50 rounded p-2">
-        Оценка ≥ <span x-text="config.score_threshold_approve"></span> → ✅ Одобрен ИИ · 
-        Оценка <span x-text="config.score_threshold_reject"></span>-<span x-text="config.score_threshold_approve - 1"></span> → 👁 Просмотрен ИИ ·
-        Оценка &lt; <span x-text="config.score_threshold_reject"></span> → ❌ Отказ ИИ
+        ≥ <span x-text="config.score_threshold_approve"></span> → ✅ Одобрен ИИ · 
+        <span x-text="config.score_threshold_reject"></span>–<span x-text="config.score_threshold_approve-1"></span> → 👁 Просмотрен ИИ ·
+        &lt; <span x-text="config.score_threshold_reject"></span> → ❌ Отказ ИИ
       </div>
     </div>
   </div>
-  
-  <!-- Prompt editor -->
   <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
-    <h3 class="font-semibold text-gray-700 mb-3">Промпты скоринга</h3>
+    <h3 class="font-semibold text-gray-700 mb-3">Промпты</h3>
     <div class="flex gap-2 mb-2 flex-wrap">
-      <template x-for="p in prompts" :key="p.name">
-        <button @click="loadPrompt(p.name)" class="px-3 py-1 rounded-full text-xs font-medium"
-          :class="currentPrompt===p.name?'bg-blue-600 text-white':'bg-gray-100 text-gray-600'"
-          x-text="p.name"></button>
+      <template x-for="pr in prompts" :key="pr.name">
+        <button @click="loadPrompt(pr.name)" class="px-3 py-1 rounded-full text-xs font-medium"
+          :class="currentPrompt===pr.name?'bg-blue-600 text-white':'bg-gray-100 text-gray-600'"
+          x-text="pr.name"></button>
       </template>
     </div>
     <textarea x-model="promptText" class="w-full border rounded-lg px-3 py-2 text-xs font-mono h-48 resize-y"></textarea>
     <div class="flex gap-2 mt-2">
       <button @click="savePrompt()" class="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm">💾 Сохранить</button>
-      <button @click="newPrompt()" class="px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-sm">➕ Новый промпт</button>
+      <button @click="newPrompt()" class="px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-sm">➕ Новый</button>
     </div>
   </div>
 </div>
@@ -364,32 +355,23 @@
 function panel() {
   const KEY = new URLSearchParams(location.search).get('key') || '';
   const BASE = location.pathname.replace(/\/$/, '');
-  const API = (path) => BASE + path + (path.includes('?') ? '&' : '?') + 'key=' + KEY;
-  
+  const API = (p) => BASE + p + (p.includes('?') ? '&' : '?') + 'key=' + KEY;
+
   return {
-    tab: 'dashboard',
-    lastUpdate: '',
-    dashboard: [],
-    profiles: [],
-    vacancies: [],
-    routes: {},
-    todayState: {},
-    // Scoring (per job)
-    selectedModel: 'gpt-5.2',
-    models: [],
-    scoringRunning: {},
-    scoringProg: {},
-    scoringRes: {},
-    scoringFilter: {},
-    // Settings
-    config: {},
-    prompts: [],
-    currentPrompt: '',
-    promptText: '',
-    
+    tab: 'dashboard', lastUpdate: '',
+    dashboard: [], profiles: [], vacancies: [], routes: {},
+    selectedModel: 'gpt-5.2', models: [],
+    config: {}, prompts: [], currentPrompt: '', promptText: '',
+    // State per job
+    _primary: {},  // primary screening state
+    _deep: {},     // deep scoring state
+
+    S(pid, slug) { const k=pid+'.'+slug; if(!this._primary[k]) this._primary[k]={cands:null,loading:false,open:false,dates:[],currentDate:''}; return this._primary[k]; },
+    D(pid, slug) { const k=pid+'.'+slug; if(!this._deep[k]) this._deep[k]={results:null,running:false,prog:'',filter:'all',importing:false,importRes:null,importSummary:''}; return this._deep[k]; },
+
     async init() {
       this.lastUpdate = new Date().toLocaleTimeString('ru-RU');
-      const [dash, ctrl, vacs, cfg, mdls, prm, rts] = await Promise.allSettled([
+      const [dash,ctrl,vacs,cfg,mdls,prm,rts] = await Promise.allSettled([
         fetch(API('/api/dashboard')).then(r=>r.json()),
         fetch(API('/api/controls')).then(r=>r.json()),
         fetch(API('/api/vacancies')).then(r=>r.json()),
@@ -398,153 +380,124 @@ function panel() {
         fetch(API('/api/prompts')).then(r=>r.json()),
         fetch(API('/api/routes')).then(r=>r.json()),
       ]);
-      if (dash.status==='fulfilled') this.dashboard = dash.value.stats || [];
-      if (ctrl.status==='fulfilled') this.profiles = ctrl.value.profiles || [];
-      if (vacs.status==='fulfilled') this.vacancies = vacs.value.vacancies || [];
-      if (cfg.status==='fulfilled') { this.config = cfg.value; this.selectedModel = cfg.value.default_model || 'gpt-5.2'; }
-      if (mdls.status==='fulfilled') this.models = mdls.value.models || [];
-      if (prm.status==='fulfilled') this.prompts = prm.value.prompts || [];
-      if (rts.status==='fulfilled') this.routes = rts.value.routes || {};
+      if(dash.status==='fulfilled') this.dashboard=dash.value.stats||[];
+      if(ctrl.status==='fulfilled') this.profiles=ctrl.value.profiles||[];
+      if(vacs.status==='fulfilled') this.vacancies=vacs.value.vacancies||[];
+      if(cfg.status==='fulfilled'){this.config=cfg.value; this.selectedModel=cfg.value.default_model||'gpt-5.2';}
+      if(mdls.status==='fulfilled') this.models=mdls.value.models||[];
+      if(prm.status==='fulfilled') this.prompts=prm.value.prompts||[];
+      if(rts.status==='fulfilled') this.routes=rts.value.routes||{};
     },
-    
-    formatDate(d) {
-      if (!d) return '';
-      const today = new Date().toISOString().slice(0,10);
-      const yesterday = new Date(Date.now()-86400000).toISOString().slice(0,10);
-      if (d === today) return 'Сегодня';
-      if (d === yesterday) return 'Вчера';
-      return d.slice(5); // MM-DD
+
+    fmtDate(d) {
+      if(!d) return '';
+      const t=new Date().toISOString().slice(0,10);
+      const y=new Date(Date.now()-86400000).toISOString().slice(0,10);
+      return d===t?'Сегодня':d===y?'Вчера':d.slice(5);
     },
-    
-    getRoutePrompt(profileId, jobSlug) {
-      return (this.config.route_prompts || {})[profileId + '.' + jobSlug] || this.prompts[0]?.name || 'default_am';
+
+    getRoutePrompt(pid,slug) { return (this.config.route_prompts||{})[pid+'.'+slug] || this.prompts[0]?.name || 'default_am'; },
+
+    async setRoutePrompt(pid,slug,val) {
+      if(!this.config.route_prompts) this.config.route_prompts={};
+      this.config.route_prompts[pid+'.'+slug]=val;
+      await fetch(API('/api/config'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.config)});
     },
-    
-    async setRoutePrompt(profileId, jobSlug, field, value) {
-      if (!this.config.route_prompts) this.config.route_prompts = {};
-      this.config.route_prompts[profileId + '.' + jobSlug] = value;
-      await fetch(API('/api/config'), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.config)});
+
+    async toggle(pid,field) {
+      await fetch(API('/api/controls/toggle'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:pid,field})});
+      const d=await fetch(API('/api/controls')).then(r=>r.json());
+      this.profiles=d.profiles||[];
     },
-    
-    async toggle(profileId, field) {
-      const r = await fetch(API('/api/controls/toggle'), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({profile: profileId, field})});
-      if (r.ok) {
-        const d = await fetch(API('/api/controls')).then(r=>r.json());
-        this.profiles = d.profiles || [];
-      }
+
+    async setRoute(key,val) {
+      this.routes[key]=val?parseInt(val):null;
+      await fetch(API('/api/routes'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({routes:this.routes})});
     },
-    
-    async setRoute(key, vacancyId) {
-      this.routes[key] = vacancyId ? parseInt(vacancyId) : null;
-      await fetch(API('/api/routes'), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({routes: this.routes})});
-    },
-    
-    async loadToday(profileId, jobSlug, silent, date) {
-      const k = profileId + '.' + jobSlug;
-      if (!this.todayState[k]) this.todayState[k] = {open: false, cands: null, loading: false, importing: false, importResults: null, dates: [], currentDate: ''};
-      const st = this.todayState[k];
-      st.loading = true;
-      const dateParam = date ? '&date=' + date : '';
+
+    async loadPrimary(pid,slug,date) {
+      const s=this.S(pid,slug);
+      s.loading=true;
+      const dp=date?'&date='+date:'';
       try {
-        const d = await fetch(API('/api/today/' + profileId + '/' + jobSlug) + dateParam).then(r => r.json());
-        st.cands = d;
-        st.dates = d.dates || [];
-        st.currentDate = d.date || '';
-      } catch(e) { console.error(e); }
-      st.loading = false;
+        const d=await fetch(API('/api/today/'+pid+'/'+slug)+dp).then(r=>r.json());
+        s.cands=d; s.dates=d.dates||[]; s.currentDate=d.date||'';
+      } catch(e){console.error(e);}
+      s.loading=false;
     },
-    
-    async importCandidates(profileId, jobSlug, filter) {
-      const k = profileId + '.' + jobSlug;
-      const st = this.todayState[k];
-      const vacancyId = this.routes[k];
-      if (!st?.cands || !vacancyId) return;
-      st.importing = true;
-      st.importResults = null;
-      st.importSummary = null;
-      let filtered = st.cands.candidates.filter(c => c.relevant);
-      if (filter === 'target') filtered = filtered.filter(c => c.fit_type === 'target');
-      else if (filter === 'near') filtered = filtered.filter(c => c.fit_type !== 'target');
-      const links = filtered.map(c => c.link);
-      const label = filter === 'target' ? 'точных' : filter === 'near' ? 'подходящих' : 'всех';
-      try {
-        const r = await fetch(API('/api/import'), {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({vacancy_id: parseInt(vacancyId), links})
-        });
-        const d = await r.json();
-        st.importResults = d.results || [];
-        st.importSummary = `${label}: ✅ ${d.imported} новых · 🔄 ${d.duplicates} дубл. · ${d.total} всего`;
-      } catch(e) {
-        st.importResults = [{ok: false, message: e.message}];
-        st.importSummary = '❌ Ошибка';
-      }
-      st.importing = false;
-    },
-    
-    async startScoringForJob(profileId, jobSlug) {
-      const k = profileId + '.' + jobSlug;
-      const vacancyId = this.routes[k];
-      if (!vacancyId) { alert('Сначала привяжите вакансию FriendWork'); return; }
-      
-      this.scoringRunning[k] = true;
-      this.scoringProg[k] = '0/...';
-      this.scoringRes[k] = [];
-      
-      const prompt = this.getRoutePrompt(profileId, jobSlug);
-      
-      await fetch(API('/api/scoring/' + vacancyId + '/start'), {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({model: this.selectedModel, prompt: prompt})
+
+    async startDeep(pid,slug,filter) {
+      const k=pid+'.'+slug;
+      const s=this.S(pid,slug);
+      const d=this.D(pid,slug);
+      if(!s.cands) return;
+      let cands=s.cands.candidates.filter(c=>c.relevant);
+      if(filter==='target') cands=cands.filter(c=>c.fit_type==='target');
+      else if(filter==='near') cands=cands.filter(c=>c.fit_type!=='target');
+      const links=cands.map(c=>c.link);
+      if(!links.length) return;
+
+      d.running=true; d.prog='0/'+links.length; d.results=[]; d.filter='all'; d.importRes=null;
+      const prompt=this.getRoutePrompt(pid,slug);
+
+      await fetch(API('/api/deep-scoring/start'),{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({job_key:k, links, model:this.selectedModel, prompt})
       });
-      
-      const es = new EventSource(API('/api/scoring/' + vacancyId + '/stream'));
-      es.addEventListener('update', (e) => {
-        const data = JSON.parse(e.data);
-        this.scoringProg[k] = (data.progress||0) + '/' + (data.total||0);
-        if (data.results) this.scoringRes[k] = data.results;
-        if (data.status === 'done' || data.status === 'error') {
-          this.scoringRunning[k] = false;
-          es.close();
-        }
+
+      const es=new EventSource(API('/api/deep-scoring/'+k+'/stream'));
+      es.addEventListener('update',(e)=>{
+        const data=JSON.parse(e.data);
+        d.prog=(data.progress||0)+'/'+(data.total||0);
+        if(data.results) d.results=data.results;
+        if(data.status==='done'||data.status==='error'){d.running=false; es.close();}
       });
     },
-    
-    filterScoring(profileId, jobSlug) {
-      const k = profileId + '.' + jobSlug;
-      const f = this.scoringFilter[k] || 'all';
-      const res = this.scoringRes[k] || [];
-      if (f === 'all') return res;
-      if (f === 'approved') return res.filter(r => r.fw_status === 'Одобрен ИИ');
-      if (f === 'reviewed') return res.filter(r => r.fw_status === 'Просмотрен ИИ');
-      if (f === 'rejected') return res.filter(r => r.fw_status === 'Отказ ИИ');
+
+    filterDeep(pid,slug) {
+      const d=this.D(pid,slug);
+      const f=d.filter||'all', res=d.results||[];
+      if(f==='approved') return res.filter(r=>r.fw_status==='Одобрен ИИ');
+      if(f==='reviewed') return res.filter(r=>r.fw_status==='Просмотрен ИИ');
+      if(f==='rejected') return res.filter(r=>r.fw_status==='Отказ ИИ');
       return res;
     },
-    
-    async saveConfig() {
-      await fetch(API('/api/config'), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.config)});
+
+    async importScored(pid,slug,filter) {
+      const k=pid+'.'+slug;
+      const d=this.D(pid,slug);
+      const vacId=this.routes[k];
+      if(!vacId||!d.results?.length) return;
+
+      let cands=d.results;
+      if(filter==='approved') cands=cands.filter(r=>r.fw_status==='Одобрен ИИ');
+      else if(filter==='reviewed') cands=cands.filter(r=>r.fw_status==='Просмотрен ИИ');
+
+      d.importing=true; d.importRes=null;
+      try {
+        const r=await fetch(API('/api/import-scored'),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({vacancy_id:parseInt(vacId), candidates:cands, model:this.selectedModel})
+        });
+        const data=await r.json();
+        d.importRes=data.results||[];
+        d.importSummary=`✅ ${data.imported} новых · 🔄 ${data.duplicates} дубл. · ${data.total} всего`;
+      } catch(e) {
+        d.importRes=[{ok:false,message:e.message}];
+        d.importSummary='❌ Ошибка';
+      }
+      d.importing=false;
     },
-    
-    async loadPrompt(name) {
-      this.currentPrompt = name;
-      const d = await fetch(API('/api/prompt/' + name)).then(r=>r.json());
-      this.promptText = d.content || '';
-    },
-    
-    async savePrompt() {
-      if (!this.currentPrompt) return;
-      await fetch(API('/api/prompt/' + this.currentPrompt), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content: this.promptText})});
-      alert('Сохранено!');
-    },
-    
+
+    async saveConfig() { await fetch(API('/api/config'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.config)}); },
+    async loadPrompt(name) { this.currentPrompt=name; const d=await fetch(API('/api/prompt/'+name)).then(r=>r.json()); this.promptText=d.content||''; },
+    async savePrompt() { if(!this.currentPrompt) return; await fetch(API('/api/prompt/'+this.currentPrompt),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.promptText})}); alert('Сохранено!'); },
     async newPrompt() {
-      const name = prompt('Имя нового промпта (латиница, без пробелов):');
-      if (!name || !/^[a-z0-9_-]+$/i.test(name)) return;
-      this.currentPrompt = name;
-      this.promptText = '';
-      await fetch(API('/api/prompt/' + name), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content: ''})});
-      const prm = await fetch(API('/api/prompts')).then(r=>r.json());
-      this.prompts = prm.prompts || [];
+      const name=prompt('Имя промпта (латиница):');
+      if(!name||!/^[a-z0-9_-]+$/i.test(name)) return;
+      this.currentPrompt=name; this.promptText='';
+      await fetch(API('/api/prompt/'+name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:''})});
+      const prm=await fetch(API('/api/prompts')).then(r=>r.json()); this.prompts=prm.prompts||[];
     }
   }
 }
