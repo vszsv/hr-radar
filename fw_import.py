@@ -96,7 +96,10 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
             check_data = check.json()
             histories = check_data.get('CandidateHistories') or []
             if check.status_code == 200 and len(histories) > 0:
+                # Collect unique vacancy IDs
+                job_ids = list({h.get('JobId') for h in histories if h.get('JobId')})
                 return {"ok": False, "candidate_id": cid,
+                        "job_ids": job_ids,
                         "message": f"Дубликат: [{cid}]"}
             # Candidate deleted — remove from log and re-import
             del import_log[hh_url]
@@ -232,7 +235,8 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         "Citizenship": citizenship or '',
         "RelocationReadiness": 0 if (hh.get('relocation', {}).get('type', {}) or {}).get('id') == 'no_relocation' else 1,
         "BusinessTrip": 1 if (hh.get('business_trip_readiness') or {}).get('id') == 'ready' else 0,
-        "DuplicateProcessing": "Replace",
+        # DuplicateProcessing removed — FW blocks creation with any value
+        # Dedup handled locally via fw_imports.json
     }
     
     if dl_types:
@@ -267,17 +271,12 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
             dupes = actual.get('Duplicates') or actual.get('DuplicateCandidateIds')
             if dupes:
                 dupe_id = dupes[0] if isinstance(dupes, list) else dupes
+                # Save dupe to log so next time we catch it locally
+                if hh_url:
+                    import_log[hh_url] = dupe_id
+                    _save_import_log(import_log)
                 return {"ok": False, "candidate_id": dupe_id,
                         "message": f"Дубликат: [{dupe_id}]"}
-            if 'duplicates' in msg.lower():
-                # FW detected duplicate but didn't return ID (Replace mode)
-                # Check our local log for the FW link
-                local_cid = import_log.get(hh_url)
-                if local_cid:
-                    return {"ok": False, "candidate_id": local_cid,
-                            "message": f"Дубликат: [{local_cid}]"}
-                return {"ok": False, "candidate_id": None,
-                        "message": "Дубликат в FW (кандидат уже существует)"}
             return {"ok": False, "candidate_id": None,
                     "message": f"FW error: {msg} | {r.text[:300]}"}
         
