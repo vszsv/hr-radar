@@ -465,7 +465,7 @@ async def _run_scoring(vacancy_id: int, model: str, prompt_name: str):
         except: pass
         
         oai = OpenAI(api_key=OPENAI_KEY)
-        json_fmt = 'Ответь СТРОГО JSON без markdown: {"verdict": "одобрен" или "отказ", "score": 1-10, "reason": "причина до 80 символов"}'
+        json_fmt = 'Ответь СТРОГО JSON без markdown (формат — см. системный промпт).'
         
         for idx, cand in enumerate(cand_list):
             cid = cand["candidateId"]
@@ -518,7 +518,7 @@ async def _run_scoring(vacancy_id: int, model: str, prompt_name: str):
             try:
                 if model.startswith("gpt"):
                     resp = oai.chat.completions.create(
-                        model=model, temperature=0.1, max_completion_tokens=200,
+                        model=model, temperature=0.1, max_completion_tokens=500,
                         messages=[{"role": "system", "content": prompt}, {"role": "user", "content": f"Оцени кандидата:\n\n{cand_text}\n\n{json_fmt}"}]
                     )
                     raw = resp.choices[0].message.content.strip()
@@ -595,7 +595,7 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
         except: pass
         
         oai = OpenAI(api_key=OPENAI_KEY)
-        json_fmt = 'Ответь СТРОГО JSON без markdown: {"verdict": "одобрен" или "отказ", "score": 1-10, "reason": "причина до 80 символов"}'
+        json_fmt = 'Ответь СТРОГО JSON без markdown (формат — см. системный промпт).'
         cfg = load_config()
         
         for idx, link in enumerate(links):
@@ -645,7 +645,7 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
             # Score
             try:
                 resp = oai.chat.completions.create(
-                    model=model, temperature=0.1, max_completion_tokens=200,
+                    model=model, temperature=0.1, max_completion_tokens=500,
                     messages=[{"role": "system", "content": prompt}, {"role": "user", "content": f"Оцени кандидата:\n\n{cand_text}\n\n{json_fmt}"}]
                 )
                 raw = resp.choices[0].message.content.strip()
@@ -785,7 +785,7 @@ async def api_import_scored(request: Request, key: str = Query("")):
                 "message": res.get("message", "")
             })
         except Exception as e:
-            results.append({"link": link, "ok": False, "message": str(e)[:100]})
+            results.append({"link": link, "ok": False, "candidate_id": None, "fw_status": fw_status, "vacancies": [], "message": str(e)[:100]})
     
     return {"results": results, "imported": imported, "duplicates": duplicates, "total": len(results)}
 

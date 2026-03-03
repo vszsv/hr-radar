@@ -86,7 +86,7 @@
       <!-- Jobs -->
       <div class="space-y-4">
         <template x-for="j in p.jobs" :key="j.slug">
-          <div class="border border-gray-200 rounded-lg overflow-hidden">
+          <div class="border border-gray-200 rounded-lg">
             <!-- Job header + toggle -->
             <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
               <span class="text-sm font-medium" x-text="j.emoji + ' ' + j.name"></span>
@@ -218,7 +218,7 @@
                     </div>
                     <!-- Cards -->
                     <div class="space-y-1.5">
-                      <template x-for="r in filterDeep(p.id, j.slug)" :key="r.link">
+                      <template x-for="(r, ri) in filterDeep(p.id, j.slug)" :key="ri">
                         <div class="border rounded-lg p-2" :class="r.fw_status==='Одобрен ИИ'?'border-green-200 bg-green-50':r.fw_status==='Отказ ИИ'?'border-red-200 bg-red-50':r.fw_status==='Просмотрен ИИ'?'border-yellow-200 bg-yellow-50':'border-gray-200'">
                           <div class="flex items-center justify-between">
                             <span class="font-medium text-xs" x-text="r.candidateName"></span>
@@ -283,11 +283,12 @@
                           <div class="text-[11px] font-medium text-gray-600" x-text="D(p.id,j.slug).importSummary"></div>
                           <template x-for="(ir, ii) in D(p.id,j.slug).importRes" :key="ii">
                             <div class="text-[11px] py-0.5 flex flex-wrap items-center gap-1">
-                              <span x-text="ir.ok ? '✅' : '🔄'"></span>
+                              <span x-text="ir.ok ? '✅' : ir.candidate_id ? '🔄' : '⚠️'"></span>
                               <a x-show="ir.candidate_id" :href="'https://app.friend.work/Candidate/Profile/'+ir.candidate_id" target="_blank" class="text-blue-600 underline font-medium" x-text="'FW-'+ir.candidate_id"></a>
-                              <span class="text-[10px] px-1 rounded" :class="ir.fw_status==='Одобрен ИИ'?'bg-green-100 text-green-700':ir.fw_status==='Просмотрен ИИ'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'" x-text="ir.fw_status"></span>
+                              <span x-show="ir.fw_status" class="text-[10px] px-1 rounded" :class="ir.fw_status==='Одобрен ИИ'?'bg-green-100 text-green-700':ir.fw_status==='Просмотрен ИИ'?'bg-yellow-100 text-yellow-700':'bg-red-100 text-red-700'" x-text="ir.fw_status"></span>
                               <span x-show="ir.ok" class="text-green-600">новый</span>
                               <span x-show="!ir.ok && ir.candidate_id" class="text-gray-500">дубликат</span>
+                              <span x-show="!ir.ok && !ir.candidate_id && ir.message" class="text-red-500" x-text="ir.message"></span>
                               <template x-if="ir.vacancies?.length">
                                 <span class="text-[10px] text-purple-600 bg-purple-50 px-1 rounded" x-text="'📋 '+ir.vacancies.join(', ')"></span>
                               </template>
