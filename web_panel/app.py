@@ -876,6 +876,47 @@ async def api_set_config(request: Request, key: str = Query("")):
     save_config(cfg)
     return {"status": "ok"}
 
+# ─── API: Schedule ───
+@app.get("/api/schedule")
+async def api_get_schedule(key: str = Query("")):
+    check_key(key)
+    cfg = load_config()
+    return {"time_msk": cfg.get("schedule_time_msk", "10:00")}
+
+@app.post("/api/schedule")
+async def api_set_schedule(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    time_msk = body.get("time_msk", "10:00")
+    cfg = load_config()
+    cfg["schedule_time_msk"] = time_msk
+    save_config(cfg)
+    # Convert MSK to UTC (MSK = UTC+3)
+    try:
+        h, m = map(int, time_msk.split(":"))
+        utc_h = (h - 3) % 24
+        utc_time = f"{utc_h:02d}:{m:02d}"
+        # Update systemd timer
+        import subprocess
+        timer_content = f"""[Unit]
+Description=HR Radar Multi-Profile Timer
+Requires=hr-radar-multi.service
+
+[Timer]
+OnCalendar=*-*-* {utc_time}:00
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+"""
+        Path("/etc/systemd/system/hr-radar-multi.timer").write_text(timer_content)
+        subprocess.run(["systemctl", "daemon-reload"], timeout=10)
+        subprocess.run(["systemctl", "restart", "hr-radar-multi.timer"], timeout=10)
+        return {"ok": True, "time_msk": time_msk, "time_utc": utc_time}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 # ─── API: Models ───
 @app.get("/api/models")
 async def api_models(key: str = Query("")):
@@ -927,6 +968,65 @@ async def scoring_stream(vacancy_id: int, key: str = Query("")):
                 break
             await asyncio.sleep(1)
     return EventSourceResponse(gen())
+
+# ─── Zoom Webhook for Voice Recognition ───
+@app.get("/zoom-webhook")
+async def zoom_webhook_get():
+    """Zoom webhook validation endpoint"""
+    return "E7aXudtqS8iiIt4rlvClfw"
+
+@app.post("/zoom-webhook")
+async def zoom_webhook_post(request: Request):
+    """Zoom webhook for recording notifications"""
+    try:
+        data = await request.json()
+        event_type = data.get("event", "unknown")
+        
+        # Handle webhook validation challenge
+        if event_type == "endpoint.url_validation":
+            plain_token = data.get("payload", {}).get("plainToken")
+            if plain_token:
+                import hashlib
+                import hmac
+                secret_token = "E7aXudtqS8iiIt4rlvClfw"
+                hash_for_verify = hmac.new(
+                    secret_token.encode('utf-8'),
+                    plain_token.encode('utf-8'),
+                    hashlib.sha256
+                ).hexdigest()
+                print(f"✅ Zoom webhook validation: plainToken={plain_token}")
+                return {
+                    "plainToken": plain_token,
+                    "encryptedToken": hash_for_verify
+                }
+        
+        # Process recording webhooks
+        print(f"📨 Zoom webhook received: {event_type}")
+        
+        if event_type == "recording.completed":
+            import threading
+            def _process_recording():
+                try:
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location(
+                        "zoom_processor",
+                        "/root/.openclaw/workspace/voice-recognition-system/zoom_processor.py"
+                    )
+                    zp = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(zp)
+                    result_path = zp.process_zoom_webhook(data)
+                    if result_path:
+                        print(f"✅ Zoom recording processed: {result_path}")
+                except Exception as e:
+                    print(f"❌ Zoom processing error: {e}")
+            
+            threading.Thread(target=_process_recording, daemon=True).start()
+        
+        return {"status": "success"}
+        
+    except Exception as e:
+        print(f"❌ Zoom webhook error: {e}")
+        return {"error": str(e)}, 500
 
 # ─── Run ───
 if __name__ == "__main__":

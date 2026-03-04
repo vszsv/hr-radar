@@ -87,19 +87,44 @@
       <div class="space-y-4">
         <template x-for="j in p.jobs" :key="j.slug">
           <div class="border border-gray-200 rounded-lg">
-            <!-- Job header + toggle -->
-            <div class="px-3 py-2 flex items-center justify-between"
-              :class="j.autoflow?.enabled ? 'bg-emerald-50' : 'bg-gray-50'">
+            <!-- Job header + toggle (click to collapse/expand) -->
+            <div class="px-3 py-2 flex items-center justify-between cursor-pointer select-none"
+              :class="j.autoflow?.enabled ? 'bg-emerald-50' : 'bg-gray-50'"
+              @click="J(p.id,j.slug).open = !J(p.id,j.slug).open">
               <div class="flex items-center gap-1.5">
+                <span class="text-[10px] text-gray-400 transition-transform" :class="J(p.id,j.slug).open ? 'rotate-90' : ''" x-text="'▶'"></span>
                 <span class="text-sm font-medium" x-text="j.emoji + ' ' + j.name"></span>
                 <span x-show="j.autoflow?.enabled" class="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-bold">⚡AUTO</span>
+                <!-- Compact autoflow last run badge (visible when collapsed) -->
+                <template x-if="!J(p.id,j.slug).open && j.autoflow?.last_run">
+                  <span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded ml-1"
+                    x-text="'🤖 ' + (j.autoflow.last_run.approved||0) + '✅ ' + (j.autoflow.last_run.imported||0) + '📤'"></span>
+                </template>
               </div>
-              <button @click="toggle(p.id, j.slug)" class="px-2 py-0.5 rounded text-xs font-medium"
-                :class="j.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
-                x-text="j.enabled ? '✅' : '❌'"></button>
+              <div class="flex gap-2 items-center" @click.stop>
+                <button @click="toggle(p.id, j.slug)" class="px-2 py-0.5 rounded text-xs font-medium"
+                  :class="j.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
+                  x-text="j.enabled ? '✅' : '❌'"></button>
+              </div>
             </div>
 
-            <div class="p-3 space-y-3">
+            <div x-show="J(p.id,j.slug).open" x-cloak class="p-3 space-y-3">
+
+              <!-- ═══ AUTOFLOW LAST RUN (if exists) ═══ -->
+              <template x-if="j.autoflow?.enabled && j.autoflow?.last_run">
+                <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5">
+                  <div class="text-[11px] font-semibold text-emerald-700 mb-1">🤖 Последний автоflow</div>
+                  <div class="flex gap-3 text-[11px] flex-wrap">
+                    <span class="text-gray-600">📅 <span x-text="j.autoflow.last_run.date || '—'"></span></span>
+                    <span class="text-blue-600">📋 <span x-text="j.autoflow.last_run.primary || 0"></span> первичных</span>
+                    <span class="text-green-600">✅ <span x-text="j.autoflow.last_run.approved || 0"></span> одобрено</span>
+                    <span class="text-yellow-600">👁 <span x-text="j.autoflow.last_run.reviewed || 0"></span> просмотрено</span>
+                    <span class="text-red-600">❌ <span x-text="j.autoflow.last_run.rejected || 0"></span> отказ</span>
+                    <span class="text-purple-600">📤 <span x-text="j.autoflow.last_run.imported || 0"></span> в FW</span>
+                    <span class="text-gray-400">🔄 <span x-text="j.autoflow.last_run.dupes || 0"></span> дубл.</span>
+                  </div>
+                </div>
+              </template>
 
               <!-- ═══ AUTOFLOW ═══ -->
               <div class="rounded-lg p-2.5 space-y-2 transition-all"
@@ -397,6 +422,20 @@
     </div>
   </div>
   <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+    <h3 class="font-semibold text-gray-700 mb-3">⏰ Расписание запуска</h3>
+    <div class="space-y-2">
+      <div class="flex items-center gap-3">
+        <label class="text-xs text-gray-500">Время запуска (МСК):</label>
+        <input type="time" x-model="config.schedule_time_msk" @change="saveSchedule()"
+          class="border rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div class="text-xs text-gray-400">
+        Сейчас: <span x-text="config.schedule_time_msk || '10:00'" class="font-medium"></span> МСК ·
+        Первичный отбор + автоflow (если включён) запускаются последовательно
+      </div>
+    </div>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
     <h3 class="font-semibold text-gray-700 mb-3">Промпты</h3>
     <div class="flex gap-2 mb-2 flex-wrap">
       <template x-for="pr in prompts" :key="pr.name">
@@ -430,6 +469,8 @@ function panel() {
     _primary: {},  // primary screening state
     _deep: {},     // deep scoring state
 
+    _jobs: {},  // job collapse state
+    J(pid, slug) { const k=pid+'.'+slug; if(!this._jobs[k]) this._jobs[k]={open:false}; return this._jobs[k]; },
     S(pid, slug) { const k=pid+'.'+slug; if(!this._primary[k]) this._primary[k]={cands:null,loading:false,open:false,dates:[],currentDate:''}; return this._primary[k]; },
     D(pid, slug) { const k=pid+'.'+slug; if(!this._deep[k]) this._deep[k]={results:null,running:false,prog:'',filter:'all',importing:false,importRes:null,importSummary:''}; return this._deep[k]; },
 
@@ -589,6 +630,11 @@ function panel() {
       }
     },
 
+    async saveSchedule() {
+      await this.saveConfig();
+      // Update systemd timer via API
+      await fetch(API('/api/schedule'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({time_msk:this.config.schedule_time_msk})});
+    },
     async saveConfig() { await fetch(API('/api/config'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.config)}); },
     async loadPrompt(name) { this.currentPrompt=name; const d=await fetch(API('/api/prompt/'+name)).then(r=>r.json()); this.promptText=d.content||''; },
     async savePrompt() { if(!this.currentPrompt) return; await fetch(API('/api/prompt/'+this.currentPrompt),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:this.promptText})}); alert('Сохранено!'); },
