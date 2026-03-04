@@ -108,9 +108,42 @@
               </div>
             </div>
 
-            <div x-show="J(p.id,j.slug).open" x-cloak class="p-3 space-y-3">
+            <!-- ═══ ALWAYS VISIBLE: Направляющая + Autoflow toggle ═══ -->
+            <div class="p-3 space-y-2">
 
-              <!-- ═══ AUTOFLOW LAST RUN (if exists) ═══ -->
+              <!-- Направляющая (always visible) -->
+              <div class="bg-blue-50 rounded-lg p-2.5 space-y-2">
+                <div class="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">⚙️ Направляющая</div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <div class="text-[10px] text-blue-600 mb-0.5">Промпт:</div>
+                    <select @change="setRoutePrompt(p.id, j.slug, $event.target.value)" @click.stop class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                      <template x-for="pr in prompts" :key="pr.name">
+                        <option :value="pr.name" :selected="getRoutePrompt(p.id, j.slug)===pr.name" x-text="pr.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="text-[10px] text-blue-600 mb-0.5">Вакансия FW:</div>
+                    <select @change="setRoute(p.id+'.'+j.slug, $event.target.value)" @click.stop class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                      <option value="">— Нет —</option>
+                      <template x-for="v in vacancies" :key="v.id">
+                        <option :value="v.id" :selected="routes[p.id+'.'+j.slug]==v.id" x-text="v.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="text-[10px] text-blue-600 mb-0.5">Модель:</div>
+                    <select x-model="selectedModel" @click.stop class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
+                      <template x-for="m in models" :key="m.id">
+                        <option :value="m.id" x-text="m.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Autoflow last run (always visible if exists) -->
               <template x-if="j.autoflow?.enabled && j.autoflow?.last_run">
                 <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5">
                   <div class="text-[11px] font-semibold text-emerald-700 mb-1">🤖 Последний автоflow</div>
@@ -125,6 +158,10 @@
                   </div>
                 </div>
               </template>
+            </div>
+
+            <!-- ═══ EXPANDABLE: Autoflow settings + screening stages ═══ -->
+            <div x-show="J(p.id,j.slug).open" x-cloak class="px-3 pb-3 space-y-3">
 
               <!-- ═══ AUTOFLOW ═══ -->
               <div class="rounded-lg p-2.5 space-y-2 transition-all"
@@ -175,38 +212,6 @@
                         @change="setAutoflowThreshold(p.id, j.slug, 'reject', parseInt($event.target.value))"
                         class="w-12 text-xs border border-emerald-300 rounded px-1.5 py-0.5 text-center">
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ═══ НАПРАВЛЯЮЩАЯ ═══ -->
-              <div class="bg-blue-50 rounded-lg p-2.5 space-y-2">
-                <div class="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">⚙️ Направляющая</div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <div class="text-[10px] text-blue-600 mb-0.5">Промпт:</div>
-                    <select @change="setRoutePrompt(p.id, j.slug, $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
-                      <template x-for="pr in prompts" :key="pr.name">
-                        <option :value="pr.name" :selected="getRoutePrompt(p.id, j.slug)===pr.name" x-text="pr.name"></option>
-                      </template>
-                    </select>
-                  </div>
-                  <div>
-                    <div class="text-[10px] text-blue-600 mb-0.5">Вакансия FW:</div>
-                    <select @change="setRoute(p.id+'.'+j.slug, $event.target.value)" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
-                      <option value="">— Нет —</option>
-                      <template x-for="v in vacancies" :key="v.id">
-                        <option :value="v.id" :selected="routes[p.id+'.'+j.slug]==v.id" x-text="v.name"></option>
-                      </template>
-                    </select>
-                  </div>
-                  <div>
-                    <div class="text-[10px] text-blue-600 mb-0.5">Модель:</div>
-                    <select x-model="selectedModel" class="w-full text-xs border border-blue-200 rounded px-2 py-1.5 bg-white">
-                      <template x-for="m in models" :key="m.id">
-                        <option :value="m.id" x-text="m.name"></option>
-                      </template>
-                    </select>
                   </div>
                 </div>
               </div>
