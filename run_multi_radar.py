@@ -740,7 +740,269 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
     else:
         print(f"📵 Report disabled for {profile.name}")
     
+    # ═══ AUTOFLOW: automatic deep scoring + FW import ═══
+    autoflow_cfg = profile_controls.get("autoflow", {})
+    panel_config = {}
+    panel_config_path = BASE / "data" / "panel_config.json"
+    if panel_config_path.exists():
+        try:
+            panel_config = json.loads(panel_config_path.read_text())
+        except:
+            pass
+    
+    for job in active_jobs:
+        af = autoflow_cfg.get(job.slug, {})
+        if not af.get("enabled", False):
+            continue
+        
+        relevant = [c for c in job_results.get(job.slug, []) if c.get("relevant", False)]
+        if not relevant:
+            print(f"⚡ Autoflow [{job.name}]: нет релевантных, пропускаю")
+            continue
+        
+        links = [c["link"] for c in relevant if c.get("link")]
+        if not links:
+            continue
+        
+        print(f"⚡ Autoflow [{job.name}]: {len(links)} кандидатов")
+        
+        # Per-job thresholds
+        thresholds = af.get("thresholds", {})
+        t_approve = thresholds.get("approve", panel_config.get("score_threshold_approve", 7))
+        t_reject = thresholds.get("reject", panel_config.get("score_threshold_reject", 4))
+        
+        # Step 1: Deep scoring (if enabled)
+        deep_results = []
+        if af.get("deep_scoring", True):
+            deep_results = run_autoflow_deep_scoring(
+                links, job, openai_config, t_approve, t_reject, panel_config
+            )
+            print(f"  ⚡ Deep scoring done: {len(deep_results)} scored")
+        
+        # Step 2: FW import (if enabled and route configured)
+        routes = panel_config.get("routes", {})
+        route_key = f"{profile_name}.{job.slug}"
+        fw_vacancy_id = routes.get(route_key)
+        
+        if fw_vacancy_id and deep_results:
+            imported, dupes, errors = run_autoflow_fw_import(
+                deep_results, int(fw_vacancy_id), af, t_approve, t_reject, openai_config.get("model", "gpt-4o")
+            )
+            print(f"  ⚡ FW import: {imported} new, {dupes} dupes, {errors} errors")
+            
+            # Send autoflow summary to Telegram
+            approved_count = len([r for r in deep_results if r.get("score", 0) >= t_approve])
+            reviewed_count = len([r for r in deep_results if t_reject <= r.get("score", 0) < t_approve])
+            rejected_count = len([r for r in deep_results if 0 < r.get("score", 0) < t_reject])
+            
+            summary = (
+                f"⚡ <b>Autoflow: {job.emoji} {job.name}</b>\n\n"
+                f"📋 Первичный отбор: {len(relevant)} релевантных\n"
+                f"🤖 Глубокий скоринг: ✅{approved_count} 👁{reviewed_count} ❌{rejected_count}\n"
+                f"📤 Импорт в FW: {imported} новых, {dupes} дубликатов"
+            )
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{profile.telegram_token}/sendMessage",
+                    json={"chat_id": profile.telegram_chat, "text": summary, "parse_mode": "HTML"},
+                    timeout=30
+                )
+            except:
+                pass
+        elif not fw_vacancy_id and deep_results:
+            print(f"  ⚠️ Autoflow: нет привязанной вакансии FW для {route_key}")
+    
     print(f"✅ Profile {profile_name} completed")
+
+
+def run_autoflow_deep_scoring(links: List[str], job: JobConfig, openai_config: Dict,
+                              t_approve: int, t_reject: int, panel_config: Dict) -> List[Dict]:
+    """Run deep scoring synchronously for autoflow."""
+    api_key = os.environ.get(openai_config['api_key_env'])
+    if not api_key:
+        print("  ⚠️ No OpenAI key for deep scoring")
+        return []
+    
+    # Load prompt
+    prompt_key = f"{job.slug}"
+    route_prompts = panel_config.get("route_prompts", {})
+    prompt_name = route_prompts.get(prompt_key, job.prompt_file.replace(".txt", ""))
+    prompt_path = BASE / "web_panel" / "prompts" / f"{prompt_name}.txt"
+    if not prompt_path.exists():
+        prompt_path = BASE / "config" / "prompts" / job.prompt_file
+    prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else "Оцени кандидата."
+    
+    model = panel_config.get("default_model", openai_config.get("model", "gpt-4o"))
+    
+    # Try to use HH API
+    hh_get_resume = None
+    try:
+        from hh_api import get_resume as _hh_get
+        hh_get_resume = _hh_get
+    except:
+        pass
+    
+    # Cache dir
+    hh_cache_dir = BASE / "data" / "hh_resumes"
+    hh_cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        from openai import OpenAI
+        oai = OpenAI(api_key=api_key)
+    except Exception as e:
+        print(f"  ⚠️ OpenAI init failed: {e}")
+        return []
+    
+    json_fmt = 'Ответь СТРОГО JSON без markdown (формат — см. системный промпт).'
+    results = []
+    
+    for link in links:
+        resume_id = link.rstrip("/").split("/")[-1].split("?")[0]
+        cand_text = ""
+        cand_name = ""
+        
+        # Load from cache or HH API
+        cache_path = hh_cache_dir / f"{resume_id}.json"
+        resume = None
+        if cache_path.exists():
+            try:
+                resume = json.loads(cache_path.read_text())
+            except:
+                pass
+        if not resume and hh_get_resume:
+            try:
+                resume = hh_get_resume(resume_id)
+                if resume and not resume.get("errors"):
+                    cache_path.write_text(json.dumps(resume, ensure_ascii=False, indent=2))
+                else:
+                    resume = None
+            except:
+                resume = None
+        
+        if resume and not resume.get("errors"):
+            try:
+                title = resume.get("title", "")
+                area = resume.get("area", {}).get("name", "")
+                salary = resume.get("salary")
+                sal_text = f"{salary['amount']} {salary.get('currency','')}" if salary else "не указана"
+                total_exp = resume.get("total_experience") or {}
+                exp_months = total_exp.get("months", 0)
+                fn = resume.get('first_name') or ''
+                ln = resume.get('last_name') or ''
+                cand_name = f"{ln} {fn}".strip()
+                if not cand_name or cand_name in ('None None', 'None', ''):
+                    cand_name = title or f"HH-{resume_id[:8]}"
+                cand_text = f"Кандидат: {cand_name}\nДолжность: {title}\nГород: {area}\nЗарплата: {sal_text}\nОпыт: {exp_months//12} лет {exp_months%12} мес\n"
+                for exp in resume.get("experience", [])[:5]:
+                    cand_text += f"\nОпыт: {exp.get('company','')} — {exp.get('position','')} ({exp.get('start','')}-{exp.get('end','н.в.')})\n"
+                    if exp.get("description"):
+                        cand_text += f"  {exp['description'][:300]}\n"
+                skills = resume.get("skill_set", [])
+                if skills:
+                    sk = [s if isinstance(s, str) else s.get("name","") for s in skills]
+                    cand_text += f"\nНавыки: {', '.join(sk[:15])}\n"
+            except Exception as e:
+                cand_text = f"Ошибка: {e}"
+        
+        if not cand_text:
+            cand_text = f"Резюме HH: {link}"
+        
+        # Score with LLM
+        try:
+            resp = oai.chat.completions.create(
+                model=model, temperature=0.1, max_completion_tokens=500,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"Оцени кандидата:\n\n{cand_text}\n\n{json_fmt}"}
+                ]
+            )
+            raw = resp.choices[0].message.content.strip()
+            result = json.loads(raw.replace('```json','').replace('```','').strip())
+        except Exception as e:
+            result = {"verdict": "error", "score": 0, "reason": str(e)[:80]}
+        
+        score = result.get("score", 0)
+        if score >= t_approve:
+            fw_status = "Одобрен ИИ"
+        elif 0 < score < t_reject:
+            fw_status = "Отказ ИИ"
+        elif 0 < score:
+            fw_status = "Просмотрен ИИ"
+        else:
+            fw_status = "Новый"
+        
+        result["link"] = link
+        result["candidateName"] = cand_name or f"HH-{resume_id[:8]}"
+        result["fw_status"] = fw_status
+        result["resume_id"] = resume_id
+        results.append(result)
+        
+        time.sleep(0.5)  # rate limit
+    
+    return results
+
+
+def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
+                           autoflow_cfg: Dict, t_approve: int, t_reject: int,
+                           model: str) -> tuple:
+    """Import scored candidates to FriendWork based on autoflow config.
+    Returns (imported, duplicates, errors)."""
+    try:
+        from fw_import import import_hh_to_fw, get_fw_headers
+    except ImportError:
+        print("  ⚠️ fw_import not available")
+        return (0, 0, 0)
+    
+    headers = get_fw_headers()
+    imported = 0
+    dupes = 0
+    errors = 0
+    
+    for r in deep_results:
+        score = r.get("score", 0)
+        fw_status = r.get("fw_status", "Новый")
+        link = r.get("link", "")
+        resume_id = r.get("resume_id", "")
+        
+        # Check if this status category is enabled for import
+        should_import = False
+        if fw_status == "Одобрен ИИ" and autoflow_cfg.get("fw_import_approved", True):
+            should_import = True
+        elif fw_status == "Просмотрен ИИ" and autoflow_cfg.get("fw_import_reviewed", False):
+            should_import = True
+        elif fw_status == "Отказ ИИ" and autoflow_cfg.get("fw_import_rejected", False):
+            should_import = True
+        
+        if not should_import or not resume_id:
+            continue
+        
+        try:
+            res = import_hh_to_fw(resume_id, fw_vacancy_id)
+            cid = res.get("candidate_id")
+            
+            # Set AI status in FW
+            if cid and fw_status != "Новый":
+                comment = f"[AI {model}] Оценка: {score}/10 — {r.get('reason', '')}"
+                try:
+                    requests.post(
+                        f"https://api.friend.work/Candidate/{cid}/CandidateHistories/set",
+                        headers=headers, timeout=15,
+                        json={"Name": fw_status, "JobId": fw_vacancy_id, "Description": comment}
+                    )
+                except:
+                    pass
+            
+            if res.get("ok"):
+                imported += 1
+            else:
+                dupes += 1
+        except Exception as e:
+            print(f"  ⚠️ FW import error for {resume_id}: {e}")
+            errors += 1
+        
+        time.sleep(1)  # rate limit
+    
+    return (imported, dupes, errors)
 
 
 def main():

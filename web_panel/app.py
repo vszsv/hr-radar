@@ -197,6 +197,22 @@ async def api_get_controls(key: str = Query("")):
                 "slug": slug, "name": job.get("name", slug), "emoji": job.get("emoji", ""),
                 "enabled": p_ctrl.get("jobs", {}).get(slug, True)
             })
+        # Autoflow per job
+        autoflow_data = p_ctrl.get("autoflow", {})
+        for job_item in jobs:
+            af = autoflow_data.get(job_item["slug"], {})
+            job_item["autoflow"] = {
+                "enabled": af.get("enabled", False),
+                "deep_scoring": af.get("deep_scoring", True),
+                "fw_import_approved": af.get("fw_import_approved", True),
+                "fw_import_reviewed": af.get("fw_import_reviewed", False),
+                "fw_import_rejected": af.get("fw_import_rejected", False),
+                "thresholds": af.get("thresholds", {
+                    "approve": load_config().get("score_threshold_approve", 7),
+                    "reject": load_config().get("score_threshold_reject", 4),
+                })
+            }
+
         result.append({
             "id": p_name, "name": p_data.get("name", p_name),
             "email": p_data.get("imap", {}).get("user", ""),
@@ -228,6 +244,58 @@ async def api_toggle_control(request: Request, key: str = Query("")):
     
     save_controls(controls)
     return {"ok": True, "controls": controls}
+
+# ─── API: Autoflow settings per job ───
+@app.get("/api/autoflow/{profile_id}/{job_slug}")
+async def api_get_autoflow(profile_id: str, job_slug: str, key: str = Query("")):
+    check_key(key)
+    controls = load_controls()
+    p = controls.get("profiles", {}).get(profile_id, {})
+    af = p.get("autoflow", {}).get(job_slug, {})
+    defaults = {
+        "enabled": False,
+        "deep_scoring": True,
+        "fw_import_approved": True,
+        "fw_import_reviewed": False,
+        "fw_import_rejected": False,
+        "thresholds": {
+            "approve": load_config().get("score_threshold_approve", 7),
+            "reject": load_config().get("score_threshold_reject", 4),
+        }
+    }
+    defaults.update(af)
+    if "thresholds" in af:
+        defaults["thresholds"].update(af["thresholds"])
+    return defaults
+
+@app.post("/api/autoflow/{profile_id}/{job_slug}")
+async def api_set_autoflow(profile_id: str, job_slug: str, request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    controls = load_controls()
+    p = controls.setdefault("profiles", {}).setdefault(profile_id, {"enabled": True, "report_enabled": True, "jobs": {}})
+    af = p.setdefault("autoflow", {}).setdefault(job_slug, {})
+    # Update only provided fields
+    for field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected"):
+        if field in body:
+            af[field] = bool(body[field])
+    if "thresholds" in body:
+        af.setdefault("thresholds", {}).update(body["thresholds"])
+    save_controls(controls)
+    return {"ok": True, "autoflow": af}
+
+@app.post("/api/autoflow/{profile_id}/{job_slug}/toggle")
+async def api_toggle_autoflow(profile_id: str, job_slug: str, request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    field = body.get("field", "enabled")
+    controls = load_controls()
+    p = controls.setdefault("profiles", {}).setdefault(profile_id, {"enabled": True, "report_enabled": True, "jobs": {}})
+    af = p.setdefault("autoflow", {}).setdefault(job_slug, {"enabled": False})
+    if field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected"):
+        af[field] = not af.get(field, False)
+    save_controls(controls)
+    return {"ok": True, "autoflow": af}
 
 # ─── API: Routes (email profile → FW vacancy) ───
 @app.get("/api/routes")
@@ -573,15 +641,16 @@ async def deep_scoring_start(request: Request, key: str = Query("")):
     links = body.get("links", [])
     model = body.get("model", load_config().get("default_model", "gpt-5.2"))
     prompt_name = body.get("prompt", "default_am")
+    thresholds = body.get("thresholds")  # optional per-job thresholds
     if not links:
         return JSONResponse({"error": "No links provided"}, status_code=400)
     if job_key in deep_scoring_state and deep_scoring_state[job_key].get("status") == "running":
         return JSONResponse({"error": "Already running"}, status_code=409)
     deep_scoring_state[job_key] = {"status": "running", "progress": 0, "total": len(links), "results": [], "model": model}
-    asyncio.create_task(_run_deep_scoring(job_key, links, model, prompt_name))
+    asyncio.create_task(_run_deep_scoring(job_key, links, model, prompt_name, thresholds))
     return {"status": "started", "total": len(links)}
 
-async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: str):
+async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: str, thresholds: dict = None):
     try:
         from openai import OpenAI
         state = deep_scoring_state[job_key]
@@ -597,6 +666,9 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
         oai = OpenAI(api_key=OPENAI_KEY)
         json_fmt = 'Ответь СТРОГО JSON без markdown (формат — см. системный промпт).'
         cfg = load_config()
+        # Use per-job thresholds if provided, else global
+        t_approve = (thresholds or {}).get("approve") or cfg.get("score_threshold_approve", 7)
+        t_reject = (thresholds or {}).get("reject") or cfg.get("score_threshold_reject", 4)
         
         for idx, link in enumerate(links):
             cand_text = ""
@@ -654,9 +726,9 @@ async def _run_deep_scoring(job_key: str, links: list, model: str, prompt_name: 
                 result = {"verdict": "error", "score": 0, "reason": str(e)[:80]}
             
             score = result.get("score", 0)
-            if score >= cfg.get("score_threshold_approve", 7):
+            if score >= t_approve:
                 fw_status = "Одобрен ИИ"
-            elif 0 < score < cfg.get("score_threshold_reject", 4):
+            elif 0 < score < t_reject:
                 fw_status = "Отказ ИИ"
             elif 0 < score:
                 fw_status = "Просмотрен ИИ"

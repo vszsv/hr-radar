@@ -88,14 +88,71 @@
         <template x-for="j in p.jobs" :key="j.slug">
           <div class="border border-gray-200 rounded-lg">
             <!-- Job header + toggle -->
-            <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
-              <span class="text-sm font-medium" x-text="j.emoji + ' ' + j.name"></span>
+            <div class="px-3 py-2 flex items-center justify-between"
+              :class="j.autoflow?.enabled ? 'bg-emerald-50' : 'bg-gray-50'">
+              <div class="flex items-center gap-1.5">
+                <span class="text-sm font-medium" x-text="j.emoji + ' ' + j.name"></span>
+                <span x-show="j.autoflow?.enabled" class="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-bold">⚡AUTO</span>
+              </div>
               <button @click="toggle(p.id, j.slug)" class="px-2 py-0.5 rounded text-xs font-medium"
                 :class="j.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
                 x-text="j.enabled ? '✅' : '❌'"></button>
             </div>
 
             <div class="p-3 space-y-3">
+
+              <!-- ═══ AUTOFLOW ═══ -->
+              <div class="rounded-lg p-2.5 space-y-2 transition-all"
+                :class="j.autoflow?.enabled ? 'bg-emerald-50 border-2 border-emerald-400' : 'bg-gray-50 border border-gray-200'">
+                <div class="flex items-center justify-between">
+                  <div class="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-1.5"
+                    :class="j.autoflow?.enabled ? 'text-emerald-700' : 'text-gray-500'">
+                    <span x-text="j.autoflow?.enabled ? '⚡' : '🔌'"></span>
+                    Автоflow
+                    <span x-show="j.autoflow?.enabled" class="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold animate-pulse">AUTO</span>
+                  </div>
+                  <button @click="toggleAutoflow(p.id, j.slug, 'enabled')"
+                    class="px-3 py-1 rounded-full text-xs font-medium transition"
+                    :class="j.autoflow?.enabled ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-500'"
+                    x-text="j.autoflow?.enabled ? '⚡ ВКЛ' : '🔌 ВЫКЛ'"></button>
+                </div>
+                <!-- Autoflow details (shown when enabled) -->
+                <div x-show="j.autoflow?.enabled" x-cloak class="space-y-2 pt-1">
+                  <div class="flex flex-wrap gap-2 text-[11px]">
+                    <label class="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" :checked="j.autoflow?.deep_scoring" @change="toggleAutoflow(p.id, j.slug, 'deep_scoring')" class="rounded">
+                      <span>🤖 Глубокий скоринг</span>
+                    </label>
+                    <label class="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" :checked="j.autoflow?.fw_import_approved" @change="toggleAutoflow(p.id, j.slug, 'fw_import_approved')" class="rounded">
+                      <span>✅ Импорт одобренных</span>
+                    </label>
+                    <label class="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" :checked="j.autoflow?.fw_import_reviewed" @change="toggleAutoflow(p.id, j.slug, 'fw_import_reviewed')" class="rounded">
+                      <span>👁 Импорт просмотренных</span>
+                    </label>
+                    <label class="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" :checked="j.autoflow?.fw_import_rejected" @change="toggleAutoflow(p.id, j.slug, 'fw_import_rejected')" class="rounded">
+                      <span>❌ Импорт отказов</span>
+                    </label>
+                  </div>
+                  <!-- Per-job thresholds -->
+                  <div class="flex gap-3 items-center">
+                    <div class="flex items-center gap-1">
+                      <span class="text-[10px] text-emerald-600">Одобрение ≥</span>
+                      <input type="number" min="1" max="10" :value="j.autoflow?.thresholds?.approve || 7"
+                        @change="setAutoflowThreshold(p.id, j.slug, 'approve', parseInt($event.target.value))"
+                        class="w-12 text-xs border border-emerald-300 rounded px-1.5 py-0.5 text-center">
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <span class="text-[10px] text-emerald-600">Отказ &lt;</span>
+                      <input type="number" min="1" max="10" :value="j.autoflow?.thresholds?.reject || 4"
+                        @change="setAutoflowThreshold(p.id, j.slug, 'reject', parseInt($event.target.value))"
+                        class="w-12 text-xs border border-emerald-300 rounded px-1.5 py-0.5 text-center">
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <!-- ═══ НАПРАВЛЯЮЩАЯ ═══ -->
               <div class="bg-blue-50 rounded-lg p-2.5 space-y-2">
@@ -451,9 +508,14 @@ function panel() {
       d.running=true; d.prog='0/'+links.length; d.results=[]; d.filter='all'; d.importRes=null;
       const prompt=this.getRoutePrompt(pid,slug);
 
+      // Get per-job thresholds if available
+      const prof = this.profiles.find(p2=>p2.id===pid);
+      const jobData = prof?.jobs?.find(j2=>j2.slug===slug);
+      const thresholds = jobData?.autoflow?.thresholds || null;
+
       await fetch(API('/api/deep-scoring/start'),{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({job_key:k, links, model:this.selectedModel, prompt})
+        body:JSON.stringify({job_key:k, links, model:this.selectedModel, prompt, thresholds})
       });
 
       const es=new EventSource(API('/api/deep-scoring/'+k+'/stream'));
@@ -499,6 +561,32 @@ function panel() {
         d.importSummary='❌ Ошибка';
       }
       d.importing=false;
+    },
+
+    async toggleAutoflow(pid, slug, field) {
+      const r = await fetch(API('/api/autoflow/'+pid+'/'+slug+'/toggle'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({field})});
+      const data = await r.json();
+      // Update local state
+      const prof = this.profiles.find(p=>p.id===pid);
+      if(prof) {
+        const job = prof.jobs.find(j=>j.slug===slug);
+        if(job) job.autoflow = {...(job.autoflow||{}), ...data.autoflow};
+      }
+    },
+
+    async setAutoflowThreshold(pid, slug, field, value) {
+      const thresholds = {};
+      thresholds[field] = value;
+      await fetch(API('/api/autoflow/'+pid+'/'+slug),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({thresholds})});
+      // Update local state
+      const prof = this.profiles.find(p=>p.id===pid);
+      if(prof) {
+        const job = prof.jobs.find(j=>j.slug===slug);
+        if(job && job.autoflow) {
+          if(!job.autoflow.thresholds) job.autoflow.thresholds={};
+          job.autoflow.thresholds[field] = value;
+        }
+      }
     },
 
     async saveConfig() { await fetch(API('/api/config'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.config)}); },
