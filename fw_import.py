@@ -22,10 +22,17 @@ def get_fw_headers():
 
 
 def get_fw_open_vacancies() -> list:
-    """Get ALL open vacancies from FriendWork."""
+    """Get ALL open vacancies from FriendWork.
+    
+    Primary: GET /jobs with paging.
+    Fallback: load vacancy IDs from panel_config.json routes and fetch individually.
+    """
     h = get_fw_headers()
+    
+    # --- Primary: bulk GET /jobs ---
     all_items = []
     page = 0
+    bulk_ok = True
     while True:
         payload = {
             "paging": {"page": page, "count": 100}
@@ -34,6 +41,8 @@ def get_fw_open_vacancies() -> list:
             r = requests.get('https://api.friend.work/jobs', headers=h,
                              json=payload, timeout=60)
             if r.status_code != 200:
+                logger.warning(f"GET /jobs returned {r.status_code}, falling back to individual lookups")
+                bulk_ok = False
                 break
             items = r.json().get('Items', [])
             if not items:
@@ -44,12 +53,54 @@ def get_fw_open_vacancies() -> list:
             page += 1
         except Exception as e:
             logger.error(f"FW vacancies error: {e}")
+            bulk_ok = False
             break
     
-    return [{"id": j["jobId"], "name": j.get("name", "").strip(), "status": j.get("status", "")}
-            for j in all_items
-            if (j.get("status") or "").lower() == "open"
-            and "Перева" in ((j.get("responsibleAccount") or {}).get("lastName") or "")]
+    if bulk_ok and all_items:
+        return [{"id": j["jobId"], "name": j.get("name", "").strip(), "status": j.get("status", "")}
+                for j in all_items
+                if (j.get("status") or "").lower() == "open"
+                and "Перева" in ((j.get("responsibleAccount") or {}).get("lastName") or "")]
+    
+    # --- Fallback: fetch by IDs from panel_config routes ---
+    logger.info("Using fallback: loading vacancies from panel_config routes")
+    config_path = Path(__file__).parent / "data" / "panel_config.json"
+    if not config_path.exists():
+        logger.error("panel_config.json not found for fallback")
+        return []
+    
+    try:
+        config = json.loads(config_path.read_text())
+    except Exception as e:
+        logger.error(f"Failed to read panel_config.json: {e}")
+        return []
+    
+    # Collect unique vacancy IDs from routes
+    routes = config.get("routes", {})
+    vacancy_ids = set()
+    for route_key, vid in routes.items():
+        if isinstance(vid, int) and vid > 0:
+            vacancy_ids.add(vid)
+    
+    result = []
+    seen = set()
+    for vid in sorted(vacancy_ids):
+        try:
+            r = requests.get(f'https://api.friend.work/jobs/{vid}', headers=h, timeout=30)
+            if r.status_code == 200:
+                d = r.json()
+                status = (d.get("status") or "").lower()
+                if status == "open" and vid not in seen:
+                    seen.add(vid)
+                    result.append({
+                        "id": vid,
+                        "name": (d.get("name") or "").strip(),
+                        "status": d.get("status", "Open")
+                    })
+        except Exception as e:
+            logger.error(f"Failed to fetch job {vid}: {e}")
+    
+    return result
 
 
 def get_fw_candidate_url(candidate_id: int) -> str:

@@ -85,6 +85,9 @@ def load_controls(config: Dict[str, Any]) -> Dict[str, Any]:
         for slug, val in p_cfg.get("jobs", {}).items():
             if slug in merged["profiles"][p_name]["jobs"]:
                 merged["profiles"][p_name]["jobs"][slug] = bool(val)
+        # Preserve autoflow settings (set via web panel)
+        if "autoflow" in p_cfg:
+            merged["profiles"][p_name]["autoflow"] = p_cfg["autoflow"]
 
     CONTROLS_PATH.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
     return merged
