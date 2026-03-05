@@ -778,7 +778,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         deep_results = []
         if af.get("deep_scoring", True):
             deep_results = run_autoflow_deep_scoring(
-                links, job, openai_config, t_approve, t_reject, panel_config
+                links, job, openai_config, t_approve, t_reject, panel_config, profile_name
             )
             print(f"  ⚡ Deep scoring done: {len(deep_results)} scored")
         
@@ -839,7 +839,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
 
 
 def run_autoflow_deep_scoring(links: List[str], job: JobConfig, openai_config: Dict,
-                              t_approve: int, t_reject: int, panel_config: Dict) -> List[Dict]:
+                              t_approve: int, t_reject: int, panel_config: Dict, profile_name: str) -> List[Dict]:
     """Run deep scoring synchronously for autoflow."""
     api_key = os.environ.get(openai_config['api_key_env'])
     if not api_key:
@@ -847,7 +847,7 @@ def run_autoflow_deep_scoring(links: List[str], job: JobConfig, openai_config: D
         return []
     
     # Load prompt
-    prompt_key = f"{job.slug}"
+    prompt_key = f"{profile_name}.{job.slug}"
     route_prompts = panel_config.get("route_prompts", {})
     prompt_name = route_prompts.get(prompt_key, job.prompt_file.replace(".txt", ""))
     prompt_path = BASE / "web_panel" / "prompts" / f"{prompt_name}.txt"
