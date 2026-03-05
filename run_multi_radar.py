@@ -940,11 +940,13 @@ def run_autoflow_deep_scoring(links: List[str], job: JobConfig, openai_config: D
                 ]
             )
             raw = resp.choices[0].message.content.strip()
-            result = json.loads(raw.replace('```json','').replace('```','').strip())
+            parsed = json.loads(raw.replace('```json','').replace('```','').strip())
+            # LLM may return a list instead of dict
+            result = parsed[0] if isinstance(parsed, list) else parsed
         except Exception as e:
             result = {"verdict": "error", "score": 0, "reason": str(e)[:80]}
         
-        score = result.get("score", 0)
+        score = result.get("score", 0) if isinstance(result, dict) else 0
         if score >= t_approve:
             fw_status = "Одобрен ИИ"
         elif 0 < score < t_reject:
