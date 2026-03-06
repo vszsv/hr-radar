@@ -28,6 +28,12 @@ profiles:
         prompt_file: "project_manager.txt"
         emoji: "📋"
         description: "Project Manager / Руководитель проектов"
+
+      - name: "New Business Director"
+        slug: "new_business"
+        prompt_file: "new_business.txt"
+        emoji: "💼"
+        description: "New Business Director / Manager — привлечение клиентов, работа с входящими лидами, брифами"
         
   btl_agencies:
     name: "BTL агентства"
@@ -58,6 +64,12 @@ profiles:
         prompt_file: "project_manager.txt"
         emoji: "📋"
         description: "Project Manager / Руководитель проектов (с потенциалом в аккаунты)"
+
+      - name: "New Business Director"
+        slug: "new_business"
+        prompt_file: "new_business.txt"
+        emoji: "💼"
+        description: "New Business Director / Manager — привлечение клиентов, работа с входящими лидами, брифами"
 
 # Общие настройки
 common:

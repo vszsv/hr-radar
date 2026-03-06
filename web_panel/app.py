@@ -163,6 +163,7 @@ async def api_dashboard(key: str = Query("")):
             conn = sqlite3.connect(str(db_path))
             c = conn.cursor()
             total = c.execute("SELECT count(*) FROM scored_candidates").fetchone()[0]
+            unique_total = c.execute("SELECT count(DISTINCT normalized_link) FROM scored_candidates").fetchone()[0]
             today = c.execute("SELECT count(*) FROM scored_candidates WHERE date(run_date)=date('now')").fetchone()[0]
             relevant = c.execute("SELECT count(*) FROM scored_candidates WHERE relevant=1").fetchone()[0]
             relevant_today = c.execute("SELECT count(*) FROM scored_candidates WHERE relevant=1 AND date(run_date)=date('now')").fetchone()[0]
@@ -173,7 +174,7 @@ async def api_dashboard(key: str = Query("")):
             conn.close()
             stats.append({
                 "id": db_name, "label": labels.get(db_name, db_name),
-                "total": total, "today": today, "relevant": relevant, "relevant_today": relevant_today,
+                "total": total, "unique_total": unique_total, "today": today, "relevant": relevant, "relevant_today": relevant_today,
                 "last_run": last[0] if last else None,
                 "by_job": [{"job": r[0], "total": r[1], "relevant": r[2]} for r in by_job]
             })
@@ -969,6 +970,161 @@ async def scoring_stream(vacancy_id: int, key: str = Query("")):
             await asyncio.sleep(1)
     return EventSourceResponse(gen())
 
+# ─── API: Retroscoring ───
+retro_state = {}  # keyed by "profileId.jobSlug"
+
+@app.post("/api/retroscore/{profile_id}/{job_slug}")
+async def retroscore_start(profile_id: str, job_slug: str, request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    model = body.get("model", "gpt-4o")
+    batch_size = body.get("batch_size", 15)
+    state_key = f"{profile_id}.{job_slug}"
+    if state_key in retro_state and retro_state[state_key].get("status") == "running":
+        return JSONResponse({"error": "Already running"}, status_code=409)
+    retro_state[state_key] = {"status": "running", "progress": 0, "total": 0, "relevant": 0, "results": [], "model": model}
+    asyncio.create_task(_run_retroscore(profile_id, job_slug, model, batch_size))
+    return {"status": "started", "model": model}
+
+async def _run_retroscore(profile_id: str, job_slug: str, model: str, batch_size: int):
+    state_key = f"{profile_id}.{job_slug}"
+    state = retro_state[state_key]
+    try:
+        from openai import OpenAI
+        import yaml
+
+        # Load the primary scoring prompt for the new role
+        profiles = load_profiles()
+        profile_data = profiles.get("profiles", {}).get(profile_id, {})
+        job_data = None
+        for j in profile_data.get("jobs", []):
+            if j["slug"] == job_slug:
+                job_data = j
+                break
+        if not job_data:
+            state["status"] = "error"
+            state["error"] = f"Job {job_slug} not found in profile {profile_id}"
+            return
+
+        prompt_file = job_data.get("prompt_file", "")
+        prompt_path = Path(__file__).parent.parent / "config" / "prompts" / prompt_file
+        if not prompt_path.exists():
+            state["status"] = "error"
+            state["error"] = f"Prompt file {prompt_file} not found"
+            return
+        prompt = prompt_path.read_text()
+
+        # Get all unique candidates from scored_candidates
+        db_path = DATA_DIR / f"{profile_id}.db"
+        if not db_path.exists():
+            state["status"] = "error"
+            state["error"] = f"Database {profile_id}.db not found"
+            return
+
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+        # Get unique candidates by normalized_link (excluding already scored for this job_slug)
+        cur.execute("""
+            SELECT DISTINCT normalized_link, candidate_title, last_job, salary
+            FROM scored_candidates
+            WHERE normalized_link IS NOT NULL AND normalized_link != ''
+              AND normalized_link NOT IN (
+                SELECT normalized_link FROM scored_candidates WHERE job_slug = ?
+              )
+        """, (job_slug,))
+        candidates = cur.fetchall()
+        conn.close()
+
+        state["total"] = len(candidates)
+        if not candidates:
+            state["status"] = "done"
+            state["message"] = "Нет новых кандидатов для ретроскоринга (все уже оценены или БД пуста)"
+            return
+
+        oai = OpenAI(api_key=OPENAI_KEY)
+        now_str = datetime.now(timezone.utc).isoformat()
+
+        # Process in batches
+        for batch_start in range(0, len(candidates), batch_size):
+            batch = candidates[batch_start:batch_start + batch_size]
+            # Build batch input
+            batch_text = ""
+            for i, (link, title, last_job, salary) in enumerate(batch):
+                batch_text += f"\n--- Кандидат {i+1} ---\n"
+                batch_text += f"Резюме: {title or '—'}\n"
+                batch_text += f"Последнее место: {last_job or '—'}\n"
+                batch_text += f"Зарплата: {salary or '—'}\n"
+                batch_text += f"HH: {link}\n"
+
+            try:
+                resp = oai.chat.completions.create(
+                    model=model, temperature=0.1, max_completion_tokens=2000,
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": f"Оцени {len(batch)} кандидатов:\n{batch_text}\n\nОтветь СТРОГО JSON-массивом без markdown."}
+                    ]
+                )
+                raw = resp.choices[0].message.content.strip()
+                results = json.loads(raw.replace('```json', '').replace('```', '').strip())
+                if not isinstance(results, list):
+                    results = [results]
+            except Exception as e:
+                results = [{"index": i+1, "relevant": False, "fit_type": "not_fit", "confidence": 0, "signals": [], "red_flags": [str(e)[:80]], "suggested_action": "error"} for i in range(len(batch))]
+
+            # Save results to DB
+            conn = sqlite3.connect(str(db_path))
+            for i, (link, title, last_job, salary) in enumerate(batch):
+                if i < len(results):
+                    r = results[i]
+                else:
+                    r = {"relevant": False, "fit_type": "not_fit", "confidence": 0}
+                relevant = 1 if r.get("relevant", False) else 0
+                fit_type = r.get("fit_type", "not_fit")
+                confidence = r.get("confidence", 0)
+                reason = ", ".join(r.get("signals", [])) if r.get("signals") else r.get("suggested_action", "")
+                if relevant:
+                    state["relevant"] += 1
+
+                conn.execute("""
+                    INSERT INTO scored_candidates (candidate_title, last_job, salary, normalized_link, reason, confidence, relevant, fit_type, job_slug, run_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (title, last_job, salary, link, reason, confidence, relevant, fit_type, job_slug, now_str))
+
+                state["results"].append({
+                    "link": link, "title": title, "relevant": bool(relevant),
+                    "fit_type": fit_type, "confidence": confidence
+                })
+
+            conn.commit()
+            conn.close()
+            state["progress"] = min(batch_start + len(batch), len(candidates))
+            await asyncio.sleep(1)
+
+        state["status"] = "done"
+        state["message"] = f"Готово! Оценено {len(candidates)} кандидатов, релевантных: {state['relevant']}"
+    except Exception as e:
+        retro_state[state_key] = {"status": "error", "error": str(e)}
+
+@app.get("/api/retroscore/{profile_id}/{job_slug}/stream")
+async def retroscore_stream(profile_id: str, job_slug: str, key: str = Query("")):
+    check_key(key)
+    state_key = f"{profile_id}.{job_slug}"
+    async def gen():
+        last = -1
+        while True:
+            state = retro_state.get(state_key, {"status": "idle"})
+            progress = state.get("progress", 0)
+            # Send compact state (without full results list to reduce SSE payload)
+            compact = {k: v for k, v in state.items() if k != "results"}
+            compact["results_count"] = len(state.get("results", []))
+            if progress != last or state["status"] in ("done", "error"):
+                yield {"event": "update", "data": json.dumps(compact, ensure_ascii=False)}
+                last = progress
+            if state["status"] in ("done", "error", "idle"):
+                break
+            await asyncio.sleep(1)
+    return EventSourceResponse(gen())
+
 # ─── Zoom Webhook for Voice Recognition ───
 @app.get("/zoom-webhook")
 async def zoom_webhook_get():
@@ -1027,6 +1183,796 @@ async def zoom_webhook_post(request: Request):
     except Exception as e:
         print(f"❌ Zoom webhook error: {e}")
         return {"error": str(e)}, 500
+
+# ─── Interview Analysis ───
+import uuid
+import threading
+import subprocess
+import requests as http_requests
+import anthropic
+
+INTERVIEWS_DIR = Path(__file__).parent.parent / "data" / "interviews"
+INTERVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+INTERVIEW_UPLOADS_DIR = Path(__file__).parent.parent / "data" / "interview_uploads"
+INTERVIEW_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+(INTERVIEW_UPLOADS_DIR / "vacancies").mkdir(exist_ok=True)
+(INTERVIEW_UPLOADS_DIR / "resumes").mkdir(exist_ok=True)
+(INTERVIEW_UPLOADS_DIR / "videos").mkdir(exist_ok=True)
+
+# In-memory task state for SSE streaming
+_interview_tasks = {}  # task_id -> {"stage": ..., "progress": ..., "result": ..., "error": ...}
+
+def _get_prompts_list():
+    """Return list of available prompt files."""
+    prompts = []
+    for f in sorted(PROMPTS_DIR.glob("*.txt")):
+        prompts.append({"slug": f.stem, "name": f.stem.replace("_", " ").title(), "path": str(f)})
+    return prompts
+
+def _download_from_cloud_mail(public_url: str, dest_path: str) -> str:
+    """Download file from cloud.mail.ru public link."""
+    import re as _re
+    session = http_requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    })
+
+    # Extract weblink from URL: https://cloud.mail.ru/public/HASH/filename
+    parts = public_url.rstrip('/').split('/')
+    pub_idx = parts.index('public')
+    weblink = '/'.join(parts[pub_idx + 1:])
+
+    # Step 1: Get dispatcher to find the download host
+    disp_resp = session.get("https://cloud.mail.ru/api/v2/dispatcher", timeout=15)
+    disp_data = disp_resp.json()
+    
+    # Get weblink_get URL from dispatcher (e.g. https://cloclo62.cloud.mail.ru/public/...)
+    weblink_get = disp_data.get("body", {}).get("weblink_get", [])
+    if weblink_get and isinstance(weblink_get, list):
+        dl_base = weblink_get[0].get("url", "")
+    else:
+        dl_base = ""
+    
+    # Also get weblink_view URL for fallback
+    weblink_view = disp_data.get("body", {}).get("weblink_view", [])
+    if weblink_view and isinstance(weblink_view, list):
+        view_base = weblink_view[0].get("url", "")
+    else:
+        view_base = ""
+
+    # Step 2: Try to get download token
+    token = ""
+    try:
+        # Visit the page first to get cookies
+        session.get(public_url, allow_redirects=True, timeout=15)
+        token_resp = session.post("https://cloud.mail.ru/api/v2/tokens/download", timeout=15)
+        token = token_resp.json().get("body", token_resp.json().get("token", ""))
+    except:
+        pass
+
+    # Step 3: Try downloading with weblink_get URL
+    errors = []
+    for base_url in [dl_base, view_base]:
+        if not base_url:
+            continue
+        # Build download URL: base already has path, we need to append weblink
+        # weblink_get URL format: https://clocloXX.cloud.mail.ru/public/...
+        # We need: https://clocloXX.cloud.mail.ru/weblink/view/WEBLINK?key=TOKEN
+        host = '/'.join(base_url.split('/')[:3])  # https://clocloXX.cloud.mail.ru
+        dl_url = f"{host}/weblink/view/{weblink}"
+        if token:
+            dl_url += f"?key={token}"
+        
+        try:
+            dl_resp = session.get(dl_url, stream=True, allow_redirects=True, timeout=300,
+                                  headers={"Referer": public_url})
+            content_length = int(dl_resp.headers.get('content-length', 0))
+            content_type = dl_resp.headers.get('content-type', '')
+            
+            if dl_resp.status_code == 200 and (content_length > 1000 or 'video' in content_type or 'octet' in content_type):
+                with open(dest_path, 'wb') as f:
+                    for chunk in dl_resp.iter_content(chunk_size=65536):
+                        f.write(chunk)
+                return dest_path
+            else:
+                errors.append(f"{host}: status={dl_resp.status_code}, len={content_length}, type={content_type}")
+        except Exception as e:
+            errors.append(f"{host}: {str(e)[:100]}")
+
+    # Step 4: Fallback — parse page HTML for direct links
+    try:
+        page_resp = session.get(public_url, allow_redirects=True, timeout=15)
+        # Look for direct download URLs in page source
+        matches = _re.findall(r'"(https?://cloclo\d+\.cloud\.mail\.ru/[^"]*)"', page_resp.text)
+        for url in matches:
+            try:
+                dl_resp = session.get(url, stream=True, allow_redirects=True, timeout=300)
+                if dl_resp.status_code == 200 and int(dl_resp.headers.get('content-length', 0)) > 1000:
+                    with open(dest_path, 'wb') as f:
+                        for chunk in dl_resp.iter_content(chunk_size=65536):
+                            f.write(chunk)
+                    return dest_path
+            except:
+                continue
+    except:
+        pass
+
+    raise Exception(f"Failed to download from cloud.mail.ru. Errors: {'; '.join(errors)}")
+
+
+def _download_direct(url: str, dest_path: str) -> str:
+    """Download file from direct URL."""
+    resp = http_requests.get(url, stream=True, allow_redirects=True, timeout=300)
+    resp.raise_for_status()
+    with open(dest_path, 'wb') as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            f.write(chunk)
+    return dest_path
+
+
+def _extract_audio(video_path: str, audio_path: str):
+    """Extract audio from video using ffmpeg."""
+    subprocess.run([
+        "ffmpeg", "-i", video_path, "-vn", "-acodec", "libmp3lame",
+        "-q:a", "4", "-y", audio_path
+    ], check=True, capture_output=True)
+
+
+def _split_audio_if_needed(audio_path: str, max_size_mb: int = 24) -> list:
+    """Split audio file into chunks if it exceeds max_size_mb. Returns list of file paths."""
+    file_size = os.path.getsize(audio_path)
+    if file_size <= max_size_mb * 1024 * 1024:
+        return [audio_path]
+
+    # Get duration
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+        capture_output=True, text=True
+    )
+    duration = float(result.stdout.strip())
+
+    # Calculate chunk duration (aim for ~20MB chunks)
+    num_chunks = int(file_size / (max_size_mb * 1024 * 1024)) + 1
+    chunk_duration = duration / num_chunks
+
+    chunks = []
+    base = audio_path.rsplit('.', 1)[0]
+    ext = audio_path.rsplit('.', 1)[1]
+
+    for i in range(num_chunks):
+        start = i * chunk_duration
+        chunk_path = f"{base}_chunk{i}.{ext}"
+        subprocess.run([
+            "ffmpeg", "-i", audio_path, "-ss", str(start), "-t", str(chunk_duration),
+            "-acodec", "libmp3lame", "-q:a", "4", "-y", chunk_path
+        ], check=True, capture_output=True)
+        chunks.append(chunk_path)
+
+    return chunks
+
+
+def _transcribe_audio(audio_path: str) -> str:
+    """Transcribe audio with speaker diarization using AssemblyAI, fallback to Whisper."""
+    # Try AssemblyAI first (has diarization)
+    aai_key = os.environ.get("ASSEMBLY_AI_KEY", "")
+    if aai_key:
+        try:
+            return _transcribe_with_assemblyai(audio_path, aai_key)
+        except Exception as e:
+            print(f"AssemblyAI failed, falling back to Whisper: {e}")
+
+    # Fallback: Whisper (no diarization)
+    from openai import OpenAI
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise Exception("No transcription API key configured (ASSEMBLY_AI_KEY or OPENAI_API_KEY)")
+
+    client = OpenAI(api_key=api_key)
+    chunks = _split_audio_if_needed(audio_path)
+
+    transcripts = []
+    for chunk_path in chunks:
+        with open(chunk_path, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="ru"
+            )
+        transcripts.append(transcript.text)
+
+    if len(chunks) > 1:
+        for chunk_path in chunks:
+            try:
+                os.remove(chunk_path)
+            except:
+                pass
+
+    return " ".join(transcripts)
+
+
+def _transcribe_with_assemblyai(audio_path: str, api_key: str) -> str:
+    """Transcribe with AssemblyAI including speaker diarization via REST API."""
+    import time as _time
+    headers = {"authorization": api_key}
+
+    # Step 1: Upload audio file
+    with open(audio_path, "rb") as f:
+        upload_resp = http_requests.post(
+            "https://api.assemblyai.com/v2/upload",
+            headers=headers, data=f, timeout=300
+        )
+    upload_resp.raise_for_status()
+    upload_url = upload_resp.json()["upload_url"]
+
+    # Step 2: Create transcript with diarization
+    create_resp = http_requests.post(
+        "https://api.assemblyai.com/v2/transcript",
+        headers=headers,
+        json={
+            "audio_url": upload_url,
+            "speaker_labels": True,
+            "language_code": "ru",
+            "speech_models": ["universal-3-pro", "universal-2"]
+        },
+        timeout=30
+    )
+    create_resp.raise_for_status()
+    transcript_id = create_resp.json()["id"]
+
+    # Step 3: Poll until complete (max 15 minutes)
+    for _ in range(300):
+        _time.sleep(3)
+        poll_resp = http_requests.get(
+            f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
+            headers=headers, timeout=30
+        )
+        data = poll_resp.json()
+        status = data["status"]
+
+        if status == "completed":
+            utterances = data.get("utterances", [])
+            if utterances:
+                lines = []
+                for u in utterances:
+                    speaker = f"Спикер {u['speaker']}"
+                    lines.append(f"**{speaker}:** {u['text']}")
+                return "\n\n".join(lines)
+            # No utterances — return plain text
+            return data.get("text", "")
+
+        elif status == "error":
+            raise Exception(f"AssemblyAI error: {data.get('error', 'unknown')}")
+
+    raise Exception("AssemblyAI timeout: transcription took too long")
+
+
+def _extract_text_from_pdf(pdf_path: str) -> str:
+    """Extract text from PDF file."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["pdftotext", "-layout", pdf_path, "-"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    # Fallback: try with python
+    try:
+        import PyPDF2
+        text = ""
+        with open(pdf_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                text += page.extract_text() or ""
+        return text.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _identify_speakers(transcript: str, client) -> str:
+    """Identify who is the interviewer and who is the candidate, relabel speakers."""
+    if "Спикер" not in transcript and "Speaker" not in transcript:
+        return transcript  # No diarization, skip
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",  # Use fast model for this step
+        max_tokens=100,
+        system="Определи, кто из спикеров интервьюер (рекрутер), а кто кандидат. Обычно интервьюер задаёт вопросы, а кандидат отвечает и рассказывает о себе. Ответь СТРОГО в формате JSON: {\"interviewer\": \"A\", \"candidate\": \"B\"} — укажи буквы спикеров.",
+        messages=[{"role": "user", "content": f"Начало транскрипции:\n\n{transcript[:3000]}"}]
+    )
+    
+    try:
+        import re
+        raw = response.content[0].text.strip()
+        match = re.search(r'\{[^}]+\}', raw)
+        if match:
+            roles = json.loads(match.group(0))
+            interviewer = roles.get("interviewer", "A")
+            candidate = roles.get("candidate", "B")
+            # Replace speaker labels
+            result = transcript
+            result = result.replace(f"**Спикер {interviewer}:**", "**🎤 Интервьюер:**")
+            result = result.replace(f"**Спикер {candidate}:**", "**👤 Кандидат:**")
+            # Handle remaining speakers
+            for letter in "CDEFGH":
+                result = result.replace(f"**Спикер {letter}:**", f"**Спикер {letter}:**")
+            return result
+    except:
+        pass
+    return transcript
+
+
+def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy_pdf_text: str = "", resume_pdf_text: str = "") -> dict:
+    """Analyze interview transcript using Claude."""
+    client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY env
+
+    vacancy_section = f"Промпт вакансии:\n{vacancy_prompt}"
+    if vacancy_pdf_text:
+        vacancy_section += f"\n\nПодробное описание вакансии (из PDF):\n{vacancy_pdf_text}"
+    
+    resume_section = ""
+    if resume_pdf_text:
+        resume_section = f"\n\nРезюме кандидата:\n{resume_pdf_text}\n\nСопоставь информацию из резюме с тем, что кандидат рассказал на интервью. Отметь расхождения и подтверждения."
+
+    system_prompt = f"""Ты — экспертный HR-аналитик. Проанализируй транскрипцию интервью кандидата.
+В транскрипции реплики подписаны: 🎤 Интервьюер (рекрутер) и 👤 Кандидат. Анализируй только ответы кандидата, вопросы интервьюера используй для контекста.
+
+{vacancy_section}{resume_section}
+
+ВАЖНО: Для ключевых утверждений приводи 1-2 конкретные цитаты кандидата из интервью (в кавычках). Не нужно цитировать всё — только самые показательные моменты.
+
+Дай структурированный анализ в формате JSON (только JSON, без markdown):
+{{
+    "summary": "Краткое резюме интервью (2-3 предложения)",
+    "vacancy_fit": {{
+        "score": <число от 1 до 10>,
+        "relevant_experience": ["что подтвердилось — кратко, с ключевой цитатой"],
+        "hard_skills": ["навыки"],
+        "gaps": ["чего не хватает"]
+    }},
+    "psychological_profile": {{
+        "thinking_type": "3-4 предложения: тип мышления + ключевая цитата-подтверждение",
+        "communication_style": "3-4 предложения: стиль коммуникации + пример из речи",
+        "leadership": "3-4 предложения: лидерские качества + цитата",
+        "stress_resistance": "2-3 предложения: стрессоустойчивость + пример",
+        "motivation": "3-4 предложения: мотивация, red flags + цитата",
+        "emotional_intelligence": "2-3 предложения: эмпатия, работа с людьми + пример",
+        "values_and_culture": "2-3 предложения: ценности, культурный fit + цитата"
+    }},
+    "speech_analysis": {{
+        "confidence_level": "2-3 предложения + пример",
+        "specificity": "2-3 предложения + пример",
+        "self_presentation": "2-3 предложения + пример",
+        "red_flags": ["red flags с краткой цитатой"]
+    }},
+    "psychotype_analysis": {{
+        "accentuation": "Акцентуация по Личко/Леонгарду (2-3 предложения): какой тип (гипертимный/истероидный/шизоидный/эпилептоидный/лабильный и т.д.), почему, как проявляется в речи",
+        "enneagram": "Эннеаграмма (2-3 предложения): тип 1-9, как проявляется",
+        "disc": "DISC-профиль (2-3 предложения): D/I/S/C доминанта, как проявляется в коммуникации",
+        "conflict_style": "Стиль поведения в конфликте (2-3 предложения): избегание/компромисс/конкуренция/сотрудничество/приспособление"
+    }},
+    "overall": {{
+        "strengths": ["топ-3 сильные стороны — кратко с обоснованием"],
+        "risks": ["топ-3 зоны риска — кратко с обоснованием"],
+        "recommendation": "рекомендация (2-3 предложения)",
+        "next_interview_questions": ["5-7 вопросов для следующего интервью с заказчиком"]
+    }}
+}}"""
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=8000,
+        messages=[{
+            "role": "user",
+            "content": f"Транскрипция интервью:\n\n{transcript}"
+        }],
+        system=system_prompt
+    )
+
+    text = response.content[0].text.strip()
+    # Try to extract JSON from response
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(text)
+
+
+def _generate_interview_pdf(task_id: str, analysis: dict, vacancy: str, model: str) -> str:
+    """Generate a beautiful PDF report from interview analysis."""
+    from weasyprint import HTML
+
+    score = analysis.get("vacancy_fit", {}).get("score", 0)
+    score_color = "#22c55e" if score >= 7 else "#eab308" if score >= 5 else "#ef4444"
+
+    def _render_list(items):
+        if not items:
+            return "<li>—</li>"
+        return "".join(f"<li>{item}</li>" for item in items)
+
+    def _render_field(val):
+        if isinstance(val, list):
+            return "<ul>" + _render_list(val) + "</ul>"
+        return f"<p>{val}</p>"
+
+    psych = analysis.get("psychological_profile", {})
+    speech = analysis.get("speech_analysis", {})
+    psychotype = analysis.get("psychotype_analysis", {})
+    overall = analysis.get("overall", {})
+    fit = analysis.get("vacancy_fit", {})
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<style>
+@page {{ margin: 2cm; size: A4; }}
+body {{ font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1f2937; }}
+h1 {{ font-size: 20pt; color: #1e3a5f; border-bottom: 2px solid #3b82f6; padding-bottom: 8px; }}
+h2 {{ font-size: 14pt; color: #1e3a5f; margin-top: 20px; border-left: 4px solid #3b82f6; padding-left: 10px; }}
+h3 {{ font-size: 12pt; color: #374151; margin-top: 12px; }}
+.score-box {{ display: inline-block; font-size: 36pt; font-weight: bold; color: {score_color}; border: 3px solid {score_color}; border-radius: 12px; padding: 8px 20px; margin: 10px 0; }}
+.summary {{ background: #f0f9ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #3b82f6; }}
+.strengths {{ background: #f0fdf4; padding: 12px; border-radius: 8px; border-left: 4px solid #22c55e; }}
+.risks {{ background: #fef2f2; padding: 12px; border-radius: 8px; border-left: 4px solid #ef4444; }}
+.questions {{ background: #faf5ff; padding: 12px; border-radius: 8px; border-left: 4px solid #8b5cf6; }}
+ul {{ padding-left: 20px; }}
+li {{ margin-bottom: 6px; }}
+.section {{ margin-bottom: 15px; }}
+.meta {{ color: #6b7280; font-size: 9pt; }}
+p {{ margin: 4px 0; }}
+</style></head><body>
+
+<h1>🎥 Анализ интервью</h1>
+<p class="meta">Вакансия: {vacancy} | Модель: {model} | Дата: {datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M")} UTC</p>
+
+<div class="summary">
+<strong>Резюме:</strong> {analysis.get("summary", "—")}
+</div>
+
+<h2>🎯 Соответствие вакансии</h2>
+<div class="score-box">{score}/10</div>
+
+<div class="section">
+<h3>Подтверждённый опыт</h3>
+<ul>{_render_list(fit.get("relevant_experience", []))}</ul>
+<h3>Hard Skills</h3>
+<ul>{_render_list(fit.get("hard_skills", []))}</ul>
+<h3>Пробелы</h3>
+<ul>{_render_list(fit.get("gaps", []))}</ul>
+</div>
+
+<h2>🧠 Психологический профиль</h2>
+<div class="section">
+<h3>Тип мышления</h3>{_render_field(psych.get("thinking_type", "—"))}
+<h3>Коммуникативный стиль</h3>{_render_field(psych.get("communication_style", "—"))}
+<h3>Лидерские качества</h3>{_render_field(psych.get("leadership", "—"))}
+<h3>Стрессоустойчивость</h3>{_render_field(psych.get("stress_resistance", "—"))}
+<h3>Мотивация</h3>{_render_field(psych.get("motivation", "—"))}
+<h3>Эмоциональный интеллект</h3>{_render_field(psych.get("emotional_intelligence", "—"))}
+<h3>Ценности и культура</h3>{_render_field(psych.get("values_and_culture", "—"))}
+</div>
+
+<h2>🔍 Анализ речи</h2>
+<div class="section">
+<h3>Уверенность</h3>{_render_field(speech.get("confidence_level", "—"))}
+<h3>Конкретика vs абстракция</h3>{_render_field(speech.get("specificity", "—"))}
+<h3>Самопрезентация</h3>{_render_field(speech.get("self_presentation", "—"))}
+<h3>Red Flags</h3>
+<ul>{_render_list(speech.get("red_flags", []))}</ul>
+</div>
+
+<h2>🔮 Психотипирование</h2>
+<div class="section">
+<h3>🎭 Акцентуация (Личко/Леонгард)</h3>{_render_field(psychotype.get("accentuation", "—"))}
+<h3>🔢 Эннеаграмма</h3>{_render_field(psychotype.get("enneagram", "—"))}
+<h3>📊 DISC-профиль</h3>{_render_field(psychotype.get("disc", "—"))}
+<h3>⚔️ Стиль в конфликте</h3>{_render_field(psychotype.get("conflict_style", "—"))}
+</div>
+
+<h2>📊 Итог</h2>
+<div class="strengths">
+<h3>✅ Сильные стороны</h3>
+<ul>{_render_list(overall.get("strengths", []))}</ul>
+</div>
+<br>
+<div class="risks">
+<h3>⚠️ Зоны риска</h3>
+<ul>{_render_list(overall.get("risks", []))}</ul>
+</div>
+<br>
+<p><strong>Рекомендация:</strong> {overall.get("recommendation", "—")}</p>
+
+<div class="questions">
+<h3>❓ Вопросы для следующего интервью</h3>
+<ul>{_render_list(overall.get("next_interview_questions", []))}</ul>
+</div>
+
+</body></html>"""
+
+    pdf_path = str(INTERVIEWS_DIR / f"{task_id}.pdf")
+    HTML(string=html_content).write_pdf(pdf_path)
+    return pdf_path
+
+
+def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, model: str, video_url: str = "", vacancy_pdf_path: str = "", resume_pdf_path: str = ""):
+    """Run the full interview analysis pipeline in a background thread."""
+    task = _interview_tasks[task_id]
+    work_dir = INTERVIEWS_DIR / task_id
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Step 1: Download if needed
+        if not video_path:
+            task.update({"stage": "downloading", "progress": 10})
+            # Generate a readable filename from URL
+            import hashlib as _hl
+            url_hash = _hl.md5(video_url.encode()).hexdigest()[:8]
+            url_name = video_url.rstrip('/').split('/')[-1].split('?')[0]
+            if not url_name or len(url_name) > 60:
+                url_name = f"video_{url_hash}"
+            if not any(url_name.lower().endswith(ext) for ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm')):
+                url_name += '.mp4'
+            # Save to persistent uploads
+            persist_path = INTERVIEW_UPLOADS_DIR / "videos" / url_name
+            dest = str(work_dir / "video.mp4")
+            if "cloud.mail.ru" in video_url:
+                task.update({"stage": "downloading", "progress": 30})
+                _download_from_cloud_mail(video_url, dest)
+            else:
+                task.update({"stage": "downloading", "progress": 30})
+                _download_direct(video_url, dest)
+            # Copy to persistent storage for reuse
+            try:
+                import shutil
+                shutil.copy2(dest, str(persist_path))
+            except:
+                pass
+            video_path = dest
+            task.update({"stage": "downloading", "progress": 100})
+
+        # Step 2: Extract audio
+        task.update({"stage": "extracting_audio", "progress": 10})
+        audio_path = str(work_dir / "audio.mp3")
+        _extract_audio(video_path, audio_path)
+        task.update({"stage": "extracting_audio", "progress": 100})
+
+        # Step 3: Transcribe
+        task.update({"stage": "transcribing", "progress": 10})
+        transcript = _transcribe_audio(audio_path)
+        task.update({"stage": "transcribing", "progress": 80})
+
+        # Step 3.5: Identify speakers (before analysis to avoid bias)
+        if "Спикер" in transcript:
+            import anthropic as _anth
+            _client = _anth.Anthropic()
+            transcript = _identify_speakers(transcript, _client)
+        task.update({"stage": "transcribing", "progress": 100})
+
+        # Step 4: Analyze
+        task.update({"stage": "analyzing", "progress": 10})
+        prompt_path = PROMPTS_DIR / f"{vacancy_slug}.txt"
+        if prompt_path.exists():
+            vacancy_prompt = prompt_path.read_text()
+        else:
+            vacancy_prompt = f"Вакансия: {vacancy_slug}"
+
+        vacancy_pdf_text = ""
+        if vacancy_pdf_path and os.path.exists(vacancy_pdf_path):
+            vacancy_pdf_text = _extract_text_from_pdf(vacancy_pdf_path)
+        resume_pdf_text = ""
+        if resume_pdf_path and os.path.exists(resume_pdf_path):
+            resume_pdf_text = _extract_text_from_pdf(resume_pdf_path)
+        analysis = _analyze_interview(transcript, vacancy_prompt, model, vacancy_pdf_text, resume_pdf_text)
+        task.update({"stage": "analyzing", "progress": 100})
+
+        # Save result
+        result_data = {
+            "task_id": task_id,
+            "video_url": video_url,
+            "vacancy": vacancy_slug,
+            "model": model,
+            "transcript": transcript,
+            "analysis": analysis,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        (INTERVIEWS_DIR / f"{task_id}.json").write_text(
+            json.dumps(result_data, ensure_ascii=False, indent=2)
+        )
+
+        # Generate PDF report
+        try:
+            _generate_interview_pdf(task_id, analysis, vacancy_slug, model)
+        except Exception as e:
+            print(f"PDF generation failed: {e}")
+
+        task.update({"stage": "done", "result": analysis, "transcript": transcript, "task_id": task_id})
+
+    except Exception as e:
+        task.update({"stage": "error", "message": str(e)})
+    finally:
+        # Cleanup work dir (keep result JSON)
+        try:
+            import shutil
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+        except:
+            pass
+
+
+@app.get("/interview", response_class=HTMLResponse)
+async def interview_page(request: Request, key: str = Query("")):
+    check_key(key)
+    return templates.TemplateResponse("interview.html", {"request": request, "key": key})
+
+
+@app.get("/api/interview/prompts")
+async def api_interview_prompts(key: str = Query("")):
+    check_key(key)
+    return {"prompts": _get_prompts_list()}
+
+
+@app.get("/api/interview/uploads")
+async def api_interview_uploads(key: str = Query("")):
+    """List previously uploaded files by category."""
+    check_key(key)
+    result = {}
+    for category in ("vacancies", "resumes", "videos"):
+        cat_dir = INTERVIEW_UPLOADS_DIR / category
+        files = []
+        for f in sorted(cat_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.is_file() and not f.name.startswith('.'):
+                files.append({
+                    "name": f.name,
+                    "size": f.stat().st_size,
+                    "date": datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                    "path": f"{category}/{f.name}"
+                })
+        result[category] = files[:20]  # last 20
+    return result
+
+
+from fastapi import UploadFile, File, Form
+
+@app.post("/api/interview/analyze")
+async def api_interview_analyze(
+    key: str = Query(""),
+    video_url: str = Form(""),
+    vacancy: str = Form(""),
+    model: str = Form("claude-sonnet-4-20250514"),
+    video_file: UploadFile = File(None),
+    vacancy_pdf: UploadFile = File(None),
+    resume_pdf: UploadFile = File(None),
+    existing_vacancy: str = Form(""),   # path like "vacancies/filename.pdf"
+    existing_resume: str = Form(""),    # path like "resumes/filename.pdf"
+    existing_video: str = Form("")      # path like "videos/filename.mp4"
+):
+    check_key(key)
+
+    if not video_url and not video_file and not existing_video:
+        return JSONResponse({"error": "Нужна ссылка на видео или файл"}, status_code=400)
+    if not vacancy:
+        return JSONResponse({"error": "Выберите вакансию"}, status_code=400)
+
+    # Map model names
+    model_map = {
+        "claude-sonnet-4-6": "claude-sonnet-4-20250514",
+        "claude-opus-4-6": "claude-opus-4-20250514",
+    }
+    model = model_map.get(model, model)
+
+    task_id = str(uuid.uuid4())
+    _interview_tasks[task_id] = {"stage": "queued", "progress": 0}
+
+    video_path = ""
+    # Use existing video if selected
+    if existing_video and not video_file:
+        ep = INTERVIEW_UPLOADS_DIR / existing_video
+        if ep.exists():
+            video_path = str(ep)
+    elif video_file and video_file.filename:
+        # Save uploaded file to persistent uploads
+        safe_name = video_file.filename.replace("/", "_").replace("..", "_")
+        persist_path = INTERVIEW_UPLOADS_DIR / "videos" / safe_name
+        content = await video_file.read()
+        with open(persist_path, "wb") as f:
+            f.write(content)
+        video_path = str(persist_path)
+
+    # Vacancy PDF — existing or new upload
+    vacancy_pdf_path = ""
+    if existing_vacancy and not (vacancy_pdf and vacancy_pdf.filename):
+        ep = INTERVIEW_UPLOADS_DIR / existing_vacancy
+        if ep.exists():
+            vacancy_pdf_path = str(ep)
+    elif vacancy_pdf and vacancy_pdf.filename:
+        safe_name = vacancy_pdf.filename.replace("/", "_").replace("..", "_")
+        persist_path = INTERVIEW_UPLOADS_DIR / "vacancies" / safe_name
+        pdf_content = await vacancy_pdf.read()
+        with open(persist_path, "wb") as f:
+            f.write(pdf_content)
+        vacancy_pdf_path = str(persist_path)
+
+    # Resume PDF — existing or new upload
+    resume_pdf_path = ""
+    if existing_resume and not (resume_pdf and resume_pdf.filename):
+        ep = INTERVIEW_UPLOADS_DIR / existing_resume
+        if ep.exists():
+            resume_pdf_path = str(ep)
+    elif resume_pdf and resume_pdf.filename:
+        safe_name = resume_pdf.filename.replace("/", "_").replace("..", "_")
+        persist_path = INTERVIEW_UPLOADS_DIR / "resumes" / safe_name
+        resume_content = await resume_pdf.read()
+        with open(persist_path, "wb") as f:
+            f.write(resume_content)
+        resume_pdf_path = str(persist_path)
+
+    # Run pipeline in background
+    threading.Thread(
+        target=_run_interview_pipeline,
+        args=(task_id, video_path, vacancy, model, video_url, vacancy_pdf_path, resume_pdf_path),
+        daemon=True
+    ).start()
+
+    return {"task_id": task_id}
+
+
+@app.get("/api/interview/{task_id}/pdf")
+async def api_interview_pdf(task_id: str, key: str = Query("")):
+    check_key(key)
+    from fastapi.responses import FileResponse
+    pdf_path = INTERVIEWS_DIR / f"{task_id}.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(404, "PDF not found")
+    return FileResponse(str(pdf_path), media_type="application/pdf", filename=f"interview_report_{task_id[:8]}.pdf")
+
+
+@app.get("/api/interview/{task_id}/stream")
+async def api_interview_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+
+    if task_id not in _interview_tasks:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    async def event_generator():
+        last_stage = ""
+        last_progress = -1
+        while True:
+            task = _interview_tasks.get(task_id, {})
+            stage = task.get("stage", "queued")
+            progress = task.get("progress", 0)
+
+            if stage != last_stage or progress != last_progress:
+                if stage == "done":
+                    yield {"data": json.dumps({
+                        "stage": "done",
+                        "result": task.get("result", {}),
+                        "transcript": task.get("transcript", "")
+                    }, ensure_ascii=False)}
+                    break
+                elif stage == "error":
+                    yield {"data": json.dumps({
+                        "stage": "error",
+                        "message": task.get("message", "Unknown error")
+                    }, ensure_ascii=False)}
+                    break
+                else:
+                    yield {"data": json.dumps({
+                        "stage": stage,
+                        "progress": progress
+                    }, ensure_ascii=False)}
+
+                last_stage = stage
+                last_progress = progress
+
+            await asyncio.sleep(0.5)
+
+        # Cleanup task from memory after some time
+        await asyncio.sleep(60)
+        _interview_tasks.pop(task_id, None)
+
+    return EventSourceResponse(event_generator())
+
 
 # ─── Run ───
 if __name__ == "__main__":

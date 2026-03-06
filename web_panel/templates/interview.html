@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Radar — Анализ интервью</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<style>[x-cloak]{display:none!important}</style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="interviewApp()" x-init="init()">
+
+<header class="bg-white shadow-sm sticky top-0 z-50">
+  <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a :href="'/?key=' + key" class="text-gray-400 hover:text-gray-600 text-sm">← HR Radar</a>
+      <h1 class="text-lg font-bold text-gray-800">🎥 Анализ интервью</h1>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-6">
+
+  <!-- ═══ FORM ═══ -->
+  <div x-show="!analyzing && !result" class="space-y-4">
+
+    <!-- Vacancy selector -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">📋 Вакансия (промпт)</label>
+      <select x-model="vacancy" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <option value="">Выберите вакансию...</option>
+        <template x-for="p in prompts" :key="p.slug">
+          <option :value="p.slug" x-text="p.name"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- Video source -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">🎥 Видео интервью</label>
+      <template x-if="uploads.videos.length > 0">
+        <div class="mb-3">
+          <select x-model="existingVideo" @change="if(existingVideo) { videoFile=null; videoUrl=''; }" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Загрузить новое...</option>
+            <template x-for="f in uploads.videos" :key="f.path">
+              <option :value="f.path" x-text="f.name + ' (' + formatFileSize(f.size) + ', ' + f.date + ')'"></option>
+            </template>
+          </select>
+        </div>
+      </template>
+      <div x-show="!existingVideo">
+      <label class="block text-sm font-medium text-gray-600 mb-2">🔗 Ссылка на видео</label>
+      <input type="url" x-model="videoUrl" placeholder="https://cloud.mail.ru/public/... или прямая ссылка"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3">
+
+      <div class="text-center text-xs text-gray-400 mb-3">или</div>
+
+      <!-- File upload with drag and drop -->
+      <div
+        @dragover.prevent="dragOver = true"
+        @dragleave.prevent="dragOver = false"
+        @drop.prevent="handleDrop($event)"
+        :class="dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
+        class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors"
+        @click="$refs.fileInput.click()"
+      >
+        <input type="file" x-ref="fileInput" @change="handleFileSelect($event)" accept="video/*" class="hidden">
+        <div x-show="!videoFile" class="text-gray-500">
+          <div class="text-3xl mb-2">📁</div>
+          <div class="text-sm">Перетащите видео сюда или нажмите для выбора</div>
+          <div class="text-xs text-gray-400 mt-1">MP4, MOV, AVI, MKV</div>
+        </div>
+        <div x-show="videoFile" class="text-green-600">
+          <div class="text-3xl mb-2">✅</div>
+          <div class="text-sm font-medium" x-text="videoFile?.name"></div>
+          <div class="text-xs text-gray-400" x-text="videoFile ? formatFileSize(videoFile.size) : ''"></div>
+          <button @click.stop="videoFile = null; $refs.fileInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <!-- Vacancy PDF -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">📄 Описание вакансии (PDF, опционально)</label>
+      <template x-if="uploads.vacancies.length > 0">
+        <div class="mb-2">
+          <select x-model="existingVacancy" @change="if(existingVacancy) vacancyFile=null" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Загрузить новый...</option>
+            <template x-for="f in uploads.vacancies" :key="f.path">
+              <option :value="f.path" x-text="f.name + ' (' + f.date + ')'"></option>
+            </template>
+          </select>
+        </div>
+      </template>
+      <div x-show="!existingVacancy">
+        <div class="text-xs text-gray-400 mb-2">Загрузите PDF — он сохранится для повторного использования</div>
+        <div
+          @dragover.prevent="vacancyDragOver = true"
+          @dragleave.prevent="vacancyDragOver = false"
+          @drop.prevent="handleVacancyDrop($event)"
+          :class="vacancyDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
+          class="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors"
+          @click="$refs.vacancyInput.click()"
+        >
+          <input type="file" x-ref="vacancyInput" @change="handleVacancySelect($event)" accept=".pdf" class="hidden">
+          <div x-show="!vacancyFile" class="text-gray-500">
+            <div class="text-xl mb-1">📎</div>
+            <div class="text-sm">Перетащите PDF или нажмите для выбора</div>
+          </div>
+          <div x-show="vacancyFile" class="text-green-600">
+            <div class="text-sm font-medium" x-text="vacancyFile?.name"></div>
+            <div class="text-xs text-gray-400" x-text="vacancyFile ? formatFileSize(vacancyFile.size) : ''"></div>
+            <button @click.stop="vacancyFile = null; $refs.vacancyInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resume PDF -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">📋 Резюме кандидата (PDF, опционально)</label>
+      <template x-if="uploads.resumes.length > 0">
+        <div class="mb-2">
+          <select x-model="existingResume" @change="if(existingResume) resumeFile=null" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Загрузить новый...</option>
+            <template x-for="f in uploads.resumes" :key="f.path">
+              <option :value="f.path" x-text="f.name + ' (' + f.date + ')'"></option>
+            </template>
+          </select>
+        </div>
+      </template>
+      <div x-show="!existingResume">
+        <div class="text-xs text-gray-400 mb-2">Загрузите PDF — он сохранится для повторного использования</div>
+        <div
+          @dragover.prevent="resumeDragOver = true"
+          @dragleave.prevent="resumeDragOver = false"
+          @drop.prevent="handleResumeDrop($event)"
+          :class="resumeDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
+          class="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors"
+          @click="$refs.resumeInput.click()"
+        >
+          <input type="file" x-ref="resumeInput" @change="handleResumeSelect($event)" accept=".pdf" class="hidden">
+          <div x-show="!resumeFile" class="text-gray-500">
+            <div class="text-xl mb-1">📋</div>
+            <div class="text-sm">Перетащите PDF резюме или нажмите</div>
+          </div>
+          <div x-show="resumeFile" class="text-green-600">
+            <div class="text-sm font-medium" x-text="resumeFile?.name"></div>
+            <div class="text-xs text-gray-400" x-text="resumeFile ? formatFileSize(resumeFile.size) : ''"></div>
+            <button @click.stop="resumeFile = null; $refs.resumeInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model selector -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <label class="block text-sm font-medium text-gray-700 mb-2">🤖 Модель анализа</label>
+      <div class="flex gap-3">
+        <label class="flex-1 cursor-pointer">
+          <input type="radio" x-model="model" value="claude-sonnet-4-6" class="peer hidden">
+          <div class="border-2 rounded-lg p-3 text-center transition-colors peer-checked:border-blue-500 peer-checked:bg-blue-50 border-gray-200 hover:border-gray-300">
+            <div class="font-medium text-sm">Claude Sonnet 4.6</div>
+            <div class="text-xs text-gray-400">Быстрый, экономичный</div>
+          </div>
+        </label>
+        <label class="flex-1 cursor-pointer">
+          <input type="radio" x-model="model" value="claude-opus-4-6" class="peer hidden">
+          <div class="border-2 rounded-lg p-3 text-center transition-colors peer-checked:border-purple-500 peer-checked:bg-purple-50 border-gray-200 hover:border-gray-300">
+            <div class="font-medium text-sm">Claude Opus 4.6</div>
+            <div class="text-xs text-gray-400">Максимальное качество</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <button
+      @click="startAnalysis()"
+      :disabled="(!videoUrl && !videoFile && !existingVideo) || !vacancy"
+      :class="(!videoUrl && !videoFile && !existingVideo) || !vacancy ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
+      class="w-full text-white font-medium py-3 rounded-xl transition-colors text-sm shadow-sm"
+    >
+      🚀 Анализировать интервью
+    </button>
+
+    <div x-show="formError" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600" x-text="formError"></div>
+  </div>
+
+  <!-- ═══ PROGRESS ═══ -->
+  <div x-show="analyzing" x-cloak class="bg-white rounded-xl shadow-sm p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">⏳ Анализ в процессе...</h2>
+
+    <div class="space-y-3">
+      <template x-for="step in steps" :key="step.id">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+            :class="{
+              'bg-green-100 text-green-600': step.status === 'done',
+              'bg-blue-100 text-blue-600 animate-pulse': step.status === 'active',
+              'bg-gray-100 text-gray-400': step.status === 'pending'
+            }">
+            <span x-show="step.status === 'done'">✓</span>
+            <span x-show="step.status === 'active'">⟳</span>
+            <span x-show="step.status === 'pending'" x-text="step.icon"></span>
+          </div>
+          <div class="flex-1">
+            <div class="text-sm font-medium" :class="step.status === 'pending' ? 'text-gray-400' : 'text-gray-700'" x-text="step.label"></div>
+            <div x-show="step.status === 'active'" class="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+              <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="`width: ${step.progress}%`"></div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="errorMessage" class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600" x-text="errorMessage"></div>
+    <button x-show="errorMessage" @click="resetForm()" class="mt-3 text-sm text-blue-600 hover:underline">← Попробовать снова</button>
+  </div>
+
+  <!-- ═══ RESULT ═══ -->
+  <div x-show="result" x-cloak class="space-y-4">
+
+    <!-- Header with score -->
+    <div class="bg-white rounded-xl shadow-sm p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-800">📊 Результат анализа</h2>
+        <div class="flex gap-2">
+          <button @click="copyReport()" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-600 transition-colors">
+            📋 Скопировать
+          </button>
+          <button x-show="currentTaskId" @click="window.open('/api/interview/'+currentTaskId+'/pdf?key='+key, '_blank')" class="px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded-lg text-xs font-medium text-red-600 transition-colors">
+            📥 Скачать PDF
+          </button>
+          <button @click="resetForm()" class="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 rounded-lg text-xs font-medium text-blue-600 transition-colors">
+            🔄 Новый анализ
+          </button>
+        </div>
+      </div>
+
+      <!-- Score -->
+      <div class="flex items-center gap-4 mb-4">
+        <div class="text-5xl font-bold"
+          :class="{
+            'text-green-600': result?.vacancy_fit?.score > 7,
+            'text-yellow-500': result?.vacancy_fit?.score >= 5 && result?.vacancy_fit?.score <= 7,
+            'text-red-500': result?.vacancy_fit?.score < 5
+          }"
+          x-text="result?.vacancy_fit?.score + '/10'"></div>
+        <div>
+          <div class="text-sm font-medium text-gray-700">Соответствие вакансии</div>
+          <div class="text-xs text-gray-400" x-text="'Модель: ' + modelLabel"></div>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="bg-gray-50 rounded-lg p-3 text-sm text-gray-700" x-text="result?.summary"></div>
+    </div>
+
+    <!-- Vacancy Fit -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">🎯 Соответствие вакансии</h3>
+      <div class="space-y-3">
+        <div x-show="result?.vacancy_fit?.relevant_experience?.length">
+          <div class="text-xs font-medium text-gray-500 mb-1">Подтверждённый опыт</div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="item in result?.vacancy_fit?.relevant_experience || []">
+              <span class="inline-block bg-green-50 text-green-700 text-xs px-2 py-1 rounded-full" x-text="item"></span>
+            </template>
+          </div>
+        </div>
+        <div x-show="result?.vacancy_fit?.hard_skills?.length">
+          <div class="text-xs font-medium text-gray-500 mb-1">Hard Skills</div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="item in result?.vacancy_fit?.hard_skills || []">
+              <span class="inline-block bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full" x-text="item"></span>
+            </template>
+          </div>
+        </div>
+        <div x-show="result?.vacancy_fit?.gaps?.length">
+          <div class="text-xs font-medium text-gray-500 mb-1">Пробелы</div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="item in result?.vacancy_fit?.gaps || []">
+              <span class="inline-block bg-red-50 text-red-700 text-xs px-2 py-1 rounded-full" x-text="item"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Psychological Profile -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">🧠 Психологический профиль</h3>
+      <div class="space-y-2 text-sm">
+        <div class="grid grid-cols-1 gap-2">
+          <template x-for="[key, label] in [
+            ['thinking_type', '💭 Тип мышления'],
+            ['communication_style', '💬 Стиль коммуникации'],
+            ['leadership', '👑 Лидерство'],
+            ['stress_resistance', '🛡️ Стрессоустойчивость'],
+            ['motivation', '🔥 Мотивация'],
+            ['emotional_intelligence', '❤️ Эмоциональный интеллект']
+          ]">
+            <div class="bg-gray-50 rounded-lg p-3">
+              <div class="text-xs font-medium text-gray-500 mb-1" x-text="label"></div>
+              <div class="text-gray-700" x-text="result?.psychological_profile?.[key]"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Speech Analysis -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">🗣️ Анализ речи</h3>
+      <div class="space-y-2 text-sm">
+        <template x-for="[key, label] in [
+          ['confidence_level', '💪 Уверенность'],
+          ['specificity', '🔍 Конкретика'],
+          ['self_presentation', '🪞 Самопрезентация']
+        ]">
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-xs font-medium text-gray-500 mb-1" x-text="label"></div>
+            <div class="text-gray-700" x-text="result?.speech_analysis?.[key]"></div>
+          </div>
+        </template>
+        <div x-show="result?.speech_analysis?.red_flags?.length" class="bg-red-50 rounded-lg p-3">
+          <div class="text-xs font-medium text-red-500 mb-1">🚩 Red Flags</div>
+          <ul class="list-disc list-inside text-red-700">
+            <template x-for="flag in result?.speech_analysis?.red_flags || []">
+              <li x-text="flag"></li>
+            </template>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Psychotype Analysis -->
+    <div x-show="result?.psychotype_analysis" class="bg-white rounded-xl shadow-sm p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">🔮 Психотипирование</h3>
+      <div class="space-y-2 text-sm">
+        <template x-for="[key, label] in [
+          ['accentuation', '🎭 Акцентуация (Личко/Леонгард)'],
+          ['enneagram', '🔢 Эннеаграмма'],
+          ['disc', '📊 DISC-профиль'],
+          ['conflict_style', '⚔️ Стиль в конфликте']
+        ]">
+          <div class="bg-purple-50 rounded-lg p-3">
+            <div class="text-xs font-medium text-purple-600 mb-1" x-text="label"></div>
+            <div class="text-gray-700" x-text="result?.psychotype_analysis?.[key]"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Overall -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <h3 class="font-semibold text-gray-700 mb-3">📋 Итого</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+        <!-- Strengths -->
+        <div class="bg-green-50 rounded-lg p-3">
+          <div class="text-xs font-medium text-green-600 mb-2">💪 Сильные стороны</div>
+          <ul class="space-y-1">
+            <template x-for="item in result?.overall?.strengths || []">
+              <li class="text-sm text-green-700 flex items-start gap-1">
+                <span class="text-green-500 mt-0.5">✓</span>
+                <span x-text="item"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+
+        <!-- Risks -->
+        <div class="bg-red-50 rounded-lg p-3">
+          <div class="text-xs font-medium text-red-600 mb-2">⚠️ Зоны риска</div>
+          <ul class="space-y-1">
+            <template x-for="item in result?.overall?.risks || []">
+              <li class="text-sm text-red-700 flex items-start gap-1">
+                <span class="text-red-500 mt-0.5">!</span>
+                <span x-text="item"></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Recommendation -->
+      <div class="bg-blue-50 rounded-lg p-3 mb-3">
+        <div class="text-xs font-medium text-blue-600 mb-1">💡 Рекомендация</div>
+        <div class="text-sm text-blue-800" x-text="result?.overall?.recommendation"></div>
+      </div>
+
+      <!-- Next Interview Questions -->
+      <div x-show="result?.overall?.next_interview_questions?.length" class="bg-purple-50 rounded-lg p-3">
+        <div class="text-xs font-medium text-purple-600 mb-2">❓ Вопросы для следующего интервью</div>
+        <ol class="list-decimal list-inside space-y-1">
+          <template x-for="q in result?.overall?.next_interview_questions || []">
+            <li class="text-sm text-purple-800" x-text="q"></li>
+          </template>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Transcript toggle -->
+    <div class="bg-white rounded-xl shadow-sm p-4">
+      <button @click="showTranscript = !showTranscript" class="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-800">
+        <span x-text="showTranscript ? '▾' : '▸'"></span>
+        📝 Транскрипция
+      </button>
+      <div x-show="showTranscript" x-cloak class="mt-3 bg-gray-50 rounded-lg p-3 text-sm text-gray-600 max-h-96 overflow-y-auto whitespace-pre-wrap" x-text="transcript"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+function interviewApp() {
+  const params = new URLSearchParams(window.location.search);
+  const key = params.get('key') || '';
+
+  return {
+    key,
+    prompts: [],
+    vacancy: '',
+    videoUrl: '',
+    videoFile: null,
+    vacancyFile: null,
+    vacancyDragOver: false,
+    resumeFile: null,
+    resumeDragOver: false,
+    existingVacancy: '',
+    existingResume: '',
+    existingVideo: '',
+    currentTaskId: '',
+    uploads: { vacancies: [], resumes: [], videos: [] },
+    model: 'claude-sonnet-4-6',
+    dragOver: false,
+    analyzing: false,
+    result: null,
+    transcript: '',
+    showTranscript: false,
+    formError: '',
+    errorMessage: '',
+    steps: [
+      { id: 'downloading', icon: '📥', label: 'Скачивание видео', status: 'pending', progress: 0 },
+      { id: 'extracting_audio', icon: '🎵', label: 'Извлечение аудио', status: 'pending', progress: 0 },
+      { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
+      { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
+    ],
+
+    get modelLabel() {
+      return this.model === 'claude-opus-4-6' ? 'Claude Opus 4.6' : 'Claude Sonnet 4.6';
+    },
+
+    async init() {
+      try {
+        const [promptsResp, uploadsResp] = await Promise.all([
+          fetch(`/api/interview/prompts?key=${this.key}`),
+          fetch(`/api/interview/uploads?key=${this.key}`)
+        ]);
+        const promptsData = await promptsResp.json();
+        this.prompts = promptsData.prompts || [];
+        const uploadsData = await uploadsResp.json();
+        this.uploads = uploadsData || { vacancies: [], resumes: [], videos: [] };
+      } catch (e) {
+        console.error('Failed to load data:', e);
+      }
+    },
+
+    handleDrop(event) {
+      this.dragOver = false;
+      const files = event.dataTransfer.files;
+      if (files.length > 0 && files[0].type.startsWith('video/')) {
+        this.videoFile = files[0];
+      }
+    },
+
+    handleFileSelect(event) {
+      const files = event.target.files;
+      if (files.length > 0) {
+        this.videoFile = files[0];
+      }
+    },
+
+    handleVacancyDrop(event) {
+      this.vacancyDragOver = false;
+      const files = event.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith('.pdf')) {
+        this.vacancyFile = files[0];
+      }
+    },
+
+    handleVacancySelect(event) {
+      const files = event.target.files;
+      if (files.length > 0) {
+        this.vacancyFile = files[0];
+      }
+    },
+
+    handleResumeDrop(event) {
+      this.resumeDragOver = false;
+      const files = event.dataTransfer.files;
+      if (files.length > 0 && files[0].name.endsWith('.pdf')) {
+        this.resumeFile = files[0];
+      }
+    },
+
+    handleResumeSelect(event) {
+      const files = event.target.files;
+      if (files.length > 0) {
+        this.resumeFile = files[0];
+      }
+    },
+
+    formatFileSize(bytes) {
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    },
+
+    async startAnalysis() {
+      this.formError = '';
+      this.errorMessage = '';
+      this.result = null;
+      this.transcript = '';
+
+      if (!this.vacancy) {
+        this.formError = 'Выберите вакансию';
+        return;
+      }
+      if (!this.videoUrl && !this.videoFile && !this.existingVideo) {
+        this.formError = 'Укажите ссылку или загрузите файл';
+        return;
+      }
+
+      this.analyzing = true;
+      this.resetSteps();
+
+      // If file uploaded, skip download step
+      if (this.videoFile && !this.videoUrl) {
+        this.steps[0].status = 'done';
+        this.steps[0].label = 'Файл загружен';
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('vacancy', this.vacancy);
+        formData.append('model', this.model);
+        if (this.videoUrl) formData.append('video_url', this.videoUrl);
+        if (this.videoFile) formData.append('video_file', this.videoFile);
+        if (this.existingVideo) formData.append('existing_video', this.existingVideo);
+        if (this.vacancyFile) formData.append('vacancy_pdf', this.vacancyFile);
+        if (this.existingVacancy) formData.append('existing_vacancy', this.existingVacancy);
+        if (this.resumeFile) formData.append('resume_pdf', this.resumeFile);
+        if (this.existingResume) formData.append('existing_resume', this.existingResume);
+
+        const resp = await fetch(`/api/interview/analyze?key=${this.key}`, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.error || 'Ошибка запуска анализа');
+        }
+
+        const { task_id } = await resp.json();
+        this.currentTaskId = task_id;
+        this.listenToStream(task_id);
+      } catch (e) {
+        this.errorMessage = e.message;
+      }
+    },
+
+    listenToStream(taskId) {
+      const evtSource = new EventSource(`/api/interview/${taskId}/stream?key=${this.key}`);
+
+      evtSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.stage === 'done') {
+            this.result = data.result;
+            this.transcript = data.transcript || '';
+            this.analyzing = false;
+            // Mark all steps done
+            this.steps.forEach(s => { s.status = 'done'; s.progress = 100; });
+            evtSource.close();
+            return;
+          }
+
+          if (data.stage === 'error') {
+            this.errorMessage = data.message;
+            evtSource.close();
+            return;
+          }
+
+          // Update steps
+          const stageOrder = ['downloading', 'extracting_audio', 'transcribing', 'analyzing'];
+          const currentIdx = stageOrder.indexOf(data.stage);
+
+          this.steps.forEach((step, i) => {
+            if (i < currentIdx) {
+              step.status = 'done';
+              step.progress = 100;
+            } else if (i === currentIdx) {
+              step.status = 'active';
+              step.progress = data.progress || 0;
+            } else {
+              step.status = 'pending';
+              step.progress = 0;
+            }
+          });
+
+        } catch (e) {
+          console.error('SSE parse error:', e);
+        }
+      };
+
+      evtSource.onerror = () => {
+        if (this.analyzing && !this.result) {
+          this.errorMessage = 'Потеряно соединение с сервером';
+        }
+        evtSource.close();
+      };
+    },
+
+    resetSteps() {
+      this.steps = [
+        { id: 'downloading', icon: '📥', label: 'Скачивание видео', status: 'pending', progress: 0 },
+        { id: 'extracting_audio', icon: '🎵', label: 'Извлечение аудио', status: 'pending', progress: 0 },
+        { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
+        { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
+      ];
+    },
+
+    resetForm() {
+      this.analyzing = false;
+      this.result = null;
+      this.transcript = '';
+      this.errorMessage = '';
+      this.formError = '';
+      this.videoUrl = '';
+      this.videoFile = null;
+      this.resetSteps();
+    },
+
+    copyReport() {
+      if (!this.result) return;
+      const r = this.result;
+      let text = `📊 АНАЛИЗ ИНТЕРВЬЮ\n`;
+      text += `Оценка: ${r.vacancy_fit?.score}/10\n\n`;
+      text += `📝 Резюме: ${r.summary}\n\n`;
+
+      text += `🎯 СООТВЕТСТВИЕ ВАКАНСИИ\n`;
+      text += `Опыт: ${(r.vacancy_fit?.relevant_experience || []).join(', ')}\n`;
+      text += `Навыки: ${(r.vacancy_fit?.hard_skills || []).join(', ')}\n`;
+      text += `Пробелы: ${(r.vacancy_fit?.gaps || []).join(', ')}\n\n`;
+
+      text += `🧠 ПСИХОЛОГИЧЕСКИЙ ПРОФИЛЬ\n`;
+      if (r.psychological_profile) {
+        for (const [k, v] of Object.entries(r.psychological_profile)) {
+          text += `${k}: ${v}\n`;
+        }
+      }
+      text += `\n`;
+
+      text += `🗣️ АНАЛИЗ РЕЧИ\n`;
+      if (r.speech_analysis) {
+        text += `Уверенность: ${r.speech_analysis.confidence_level}\n`;
+        text += `Конкретика: ${r.speech_analysis.specificity}\n`;
+        text += `Самопрезентация: ${r.speech_analysis.self_presentation}\n`;
+        if (r.speech_analysis.red_flags?.length) {
+          text += `Red flags: ${r.speech_analysis.red_flags.join('; ')}\n`;
+        }
+      }
+      text += `\n`;
+
+      text += `📋 ИТОГО\n`;
+      text += `Сильные стороны: ${(r.overall?.strengths || []).join('; ')}\n`;
+      text += `Риски: ${(r.overall?.risks || []).join('; ')}\n`;
+      text += `Рекомендация: ${r.overall?.recommendation}\n\n`;
+
+      if (r.overall?.next_interview_questions?.length) {
+        text += `❓ ВОПРОСЫ ДЛЯ СЛЕДУЮЩЕГО ИНТЕРВЬЮ\n`;
+        r.overall.next_interview_questions.forEach((q, i) => {
+          text += `${i + 1}. ${q}\n`;
+        });
+      }
+
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Отчёт скопирован в буфер!');
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('Отчёт скопирован!');
+      });
+    }
+  };
+}
+</script>
+
+</body>
+</html>

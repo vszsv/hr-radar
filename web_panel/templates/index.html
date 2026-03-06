@@ -19,6 +19,7 @@
     <button @click="tab='dashboard'" :class="tab==='dashboard'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">📊 Дашборд</button>
     <button @click="tab='screening'" :class="tab==='screening'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔍 Отбор</button>
     <button @click="tab='settings'" :class="tab==='settings'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔧 Настройки</button>
+    <a :href="'/interview?key='+(new URLSearchParams(location.search).get('key')||'')" class="pb-2 whitespace-nowrap text-gray-500 hover:text-blue-500 flex items-center gap-1">🎥 Интервью</a>
   </div>
 </header>
 
@@ -40,7 +41,7 @@
         </div>
         <div class="bg-gray-50 rounded-lg p-3 text-center">
           <div class="text-2xl font-bold text-gray-600" x-text="stat.total || 0"></div>
-          <div class="text-xs text-gray-500">Всего</div>
+          <div class="text-xs text-gray-500">Всего <span class="text-gray-400" x-text="'(' + (stat.unique_total || 0) + ' уник.)'"></span></div>
         </div>
         <div class="bg-purple-50 rounded-lg p-3 text-center">
           <div class="text-2xl font-bold text-purple-600" x-text="stat.relevant || 0"></div>
@@ -214,6 +215,32 @@
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <!-- ═══ 🔄 РЕТРОСКОРИНГ ═══ -->
+              <div class="bg-orange-50 border border-orange-200 rounded-lg p-2.5">
+                <div class="flex items-center justify-between">
+                  <div class="text-[11px] font-semibold text-orange-700 uppercase tracking-wide">🔄 Ретроскоринг</div>
+                  <div class="flex items-center gap-2">
+                    <span x-show="R(p.id,j.slug).running" class="text-[11px] text-orange-600 font-medium" x-text="R(p.id,j.slug).progress+'/'+R(p.id,j.slug).total"></span>
+                    <button @click="startRetroscore(p.id, j.slug)"
+                      :disabled="R(p.id,j.slug).running"
+                      class="text-[11px] font-medium py-1 px-3 rounded-lg transition disabled:opacity-50"
+                      :class="R(p.id,j.slug).running ? 'bg-orange-300 text-white' : 'bg-orange-500 text-white hover:bg-orange-600'">
+                      <span x-text="R(p.id,j.slug).running ? '⏳ Скоринг...' : '🔄 Ретроскоринг'"></span>
+                    </button>
+                  </div>
+                </div>
+                <!-- Progress bar -->
+                <div x-show="R(p.id,j.slug).running" class="mt-2">
+                  <div class="w-full bg-orange-200 rounded-full h-1.5">
+                    <div class="bg-orange-500 h-1.5 rounded-full transition-all" :style="'width:'+((R(p.id,j.slug).total>0?(R(p.id,j.slug).progress/R(p.id,j.slug).total*100):0))+'%'"></div>
+                  </div>
+                </div>
+                <!-- Result message -->
+                <div x-show="R(p.id,j.slug).status==='done'" class="mt-1.5 text-[11px] text-green-700 font-medium" x-text="R(p.id,j.slug).message"></div>
+                <div x-show="R(p.id,j.slug).status==='error'" class="mt-1.5 text-[11px] text-red-600 font-medium" x-text="'❌ '+R(p.id,j.slug).message"></div>
+                <div class="text-[10px] text-orange-500 mt-1">Оценивает всех прошлых кандидатов по этой роли</div>
               </div>
 
               <!-- ═══ 1. ПЕРВИЧНЫЙ ОТБОР ═══ -->
@@ -475,9 +502,11 @@ function panel() {
     _deep: {},     // deep scoring state
 
     _jobs: {},  // job collapse state
+    _retro: {},  // retroscoring state
     J(pid, slug) { const k=pid+'.'+slug; if(!this._jobs[k]) this._jobs[k]={open:false}; return this._jobs[k]; },
     S(pid, slug) { const k=pid+'.'+slug; if(!this._primary[k]) this._primary[k]={cands:null,loading:false,open:false,dates:[],currentDate:''}; return this._primary[k]; },
     D(pid, slug) { const k=pid+'.'+slug; if(!this._deep[k]) this._deep[k]={results:null,running:false,prog:'',filter:'all',importing:false,importRes:null,importSummary:''}; return this._deep[k]; },
+    R(pid, slug) { const k=pid+'.'+slug; if(!this._retro[k]) this._retro[k]={running:false,progress:0,total:0,relevant:0,status:'idle',message:''}; return this._retro[k]; },
 
     async init() {
       this.lastUpdate = new Date().toLocaleTimeString('ru-RU');
@@ -632,6 +661,34 @@ function panel() {
           if(!job.autoflow.thresholds) job.autoflow.thresholds={};
           job.autoflow.thresholds[field] = value;
         }
+      }
+    },
+
+    async startRetroscore(pid, slug) {
+      const r = this.R(pid, slug);
+      if(r.running) return;
+      r.running=true; r.progress=0; r.total=0; r.relevant=0; r.status='running'; r.message='Запуск...';
+      try {
+        await fetch(API('/api/retroscore/'+pid+'/'+slug),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({model:this.selectedModel, batch_size:15})
+        });
+        const es=new EventSource(API('/api/retroscore/'+pid+'/'+slug+'/stream'));
+        es.addEventListener('update',(e)=>{
+          const data=JSON.parse(e.data);
+          r.progress=data.progress||0;
+          r.total=data.total||0;
+          r.relevant=data.relevant||0;
+          r.status=data.status||'running';
+          r.message=data.message||((data.progress||0)+'/'+(data.total||0));
+          if(data.status==='done'||data.status==='error'){
+            r.running=false;
+            es.close();
+            if(data.status==='done') this.loadPrimary(pid,slug);
+          }
+        });
+      } catch(e) {
+        r.running=false; r.status='error'; r.message=e.message;
       }
     },
 
