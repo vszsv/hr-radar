@@ -153,9 +153,9 @@ async def index(request: Request, key: str = Query("")):
 @app.get("/api/dashboard")
 async def api_dashboard(key: str = Query("")):
     check_key(key)
-    labels = {"event_agencies": "🎪 Event агентства", "btl_agencies": "📢 BTL агентства"}
+    labels = {"event_agencies": "🎪 Event агентства", "btl_agencies": "📢 BTL агентства", "outsource_agencies": "🏭 Аутсорсинг"}
     stats = []
-    for db_name in ["event_agencies", "btl_agencies"]:
+    for db_name in ["event_agencies", "btl_agencies", "outsource_agencies"]:
         db_path = DATA_DIR / f"{db_name}.db"
         if not db_path.exists():
             continue
@@ -216,7 +216,8 @@ async def api_get_controls(key: str = Query("")):
 
         result.append({
             "id": p_name, "name": p_data.get("name", p_name),
-            "email": p_data.get("imap", {}).get("user", ""),
+            "email": p_data.get("imap", {}).get("user", "") if p_data.get("source", "imap") == "imap" else "HH API",
+            "source": p_data.get("source", "imap"),
             "enabled": p_ctrl.get("enabled", True),
             "report_enabled": p_ctrl.get("report_enabled", True),
             "jobs": jobs
@@ -1973,6 +1974,273 @@ async def api_interview_stream(task_id: str, key: str = Query("")):
 
     return EventSourceResponse(event_generator())
 
+
+# ─── Outsource ───
+
+OUTSOURCE_COMPANIES_PATH = DATA_DIR / "outsource_companies.json"
+
+def _load_outsource_companies():
+    if OUTSOURCE_COMPANIES_PATH.exists():
+        return json.loads(OUTSOURCE_COMPANIES_PATH.read_text())
+    return []
+
+def _save_outsource_companies(companies):
+    OUTSOURCE_COMPANIES_PATH.write_text(json.dumps(companies, ensure_ascii=False, indent=2))
+
+@app.get("/outsource")
+async def outsource_page(request: Request, key: str = Query("")):
+    check_key(key)
+    return templates.TemplateResponse("outsource.html", {"request": request})
+
+@app.get("/api/outsource/companies")
+async def api_outsource_companies(key: str = Query("")):
+    check_key(key)
+    return _load_outsource_companies()
+
+@app.post("/api/outsource/companies")
+async def api_outsource_save(request: Request, key: str = Query("")):
+    check_key(key)
+    data = await request.json()
+    _save_outsource_companies(data)
+    return {"ok": True}
+
+@app.get("/api/outsource/check")
+async def api_outsource_check(idx: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_outsource_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"count": 0}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        r = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1"})
+        count = r.json().get("found", 0)
+    except Exception as e:
+        logger.error(f"HH check error: {e}")
+        count = -1
+
+    # Save count back
+    companies[idx]["last_count"] = count
+    _save_outsource_companies(companies)
+    return {"count": count}
+
+@app.get("/api/outsource/stats")
+async def api_outsource_stats(key: str = Query("")):
+    check_key(key)
+    db_path = DATA_DIR / "outsource_agencies.db"
+    scored = 0
+    relevant = 0
+    if db_path.exists():
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            scored = conn.execute("SELECT COUNT(*) FROM scored_candidates").fetchone()[0]
+            relevant = conn.execute("SELECT COUNT(*) FROM scored_candidates WHERE relevant=1").fetchone()[0]
+        except:
+            pass
+        conn.close()
+    return {"scored": scored, "relevant": relevant}
+
+outsource_tasks: dict = {}
+
+@app.post("/api/outsource/run")
+async def api_outsource_run(key: str = Query("")):
+    check_key(key)
+    task_id = str(uuid.uuid4())
+    outsource_tasks[task_id] = {"stage": "starting", "progress": 0, "message": "Запуск..."}
+
+    def _run_sync():
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from hh_api import hh_request, format_resume
+        import time as _time
+
+        task = outsource_tasks[task_id]
+        companies = _load_outsource_companies()
+        enabled = [c for c in companies if c.get("enabled")]
+
+        # Create DB with standard schema (same as event/btl)
+        db_path = DATA_DIR / "outsource_agencies.db"
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""CREATE TABLE IF NOT EXISTS scored_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date TEXT NOT NULL,
+            normalized_link TEXT NOT NULL,
+            candidate_title TEXT,
+            last_job TEXT,
+            salary TEXT,
+            job_slug TEXT NOT NULL,
+            relevant INTEGER NOT NULL DEFAULT 0,
+            fit_type TEXT,
+            confidence REAL,
+            reason TEXT,
+            source_subject TEXT
+        )""")
+        conn.execute("CREATE TABLE IF NOT EXISTS seen_links (normalized_link TEXT PRIMARY KEY)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scored_date ON scored_candidates(run_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_scored_job ON scored_candidates(job_slug, relevant)")
+        conn.commit()
+
+        # Get already scored links
+        existing = set(r[0] for r in conn.execute("SELECT normalized_link FROM seen_links").fetchall())
+
+        total_new = 0
+        total_scored = 0
+
+        for ci, comp in enumerate(enabled):
+            hh_key = comp.get("hh_key", "")
+            if not hh_key:
+                continue
+
+            pct = int((ci / len(enabled)) * 100)
+            task.update({"stage": "progress", "progress": pct, "message": f"🔍 {comp['name']}..."})
+
+            try:
+                # Fetch resumes
+                is_direct = comp.get("brand", "").startswith("direct_search")
+                max_pages = 3 if is_direct else 5
+                all_items = []
+                for page in range(max_pages):
+                    params = {
+                        "text": hh_key,
+                        "per_page": "20",
+                        "page": str(page),
+                        "order_by": "publication_time",
+                    }
+                    if is_direct:
+                        params["experience"] = "between3And6"
+                        params["area"] = "1"
+                    r = hh_request("GET", "/resumes", params=params)
+                    data = r.json()
+                    items = data.get("items", [])
+                    all_items.extend(items)
+                    if page >= data.get("pages", 1) - 1:
+                        break
+                    _time.sleep(0.5)
+
+                new_items = []
+                for item in all_items:
+                    link = item.get("alternate_url", "")
+                    norm = link.split("?")[0].strip() if link else ""
+                    if norm and norm not in existing:
+                        new_items.append(item)
+                        existing.add(norm)
+
+                total_new += len(new_items)
+                task.update({"message": f"🔍 {comp['name']}: {len(new_items)} новых из {len(all_items)}"})
+
+                # Score new items with GPT-4o (brief card)
+                if new_items:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+                    for item in new_items:
+                        title = item.get("title", "")
+                        exp_list = item.get("experience", [])
+                        exp_text = ""
+                        for e in exp_list[:3]:
+                            exp_text += f"- {e.get('position','')} в {e.get('company','')} ({e.get('start','')}-{e.get('end','н.в.')})\n"
+
+                        salary = item.get("salary")
+                        sal_str = f"{salary['amount']} {salary['currency']}" if salary else "не указана"
+                        area = (item.get("area") or {}).get("name", "")
+                        total_exp = item.get("total_experience", {})
+                        months = total_exp.get("months", 0) if total_exp else 0
+
+                        card = f"""Должность: {title}
+Город: {area}
+Опыт: {months // 12} лет {months % 12} мес
+Зарплата: {sal_str}
+Опыт работы:
+{exp_text}
+Источник (компания из автопоиска): {comp['name']}"""
+
+                        prompt = f"""Оцени кандидата для позиции "Руководитель отдела аутсорсинга персонала".
+
+Целевой профиль: опыт в аутсорсинге/аутстаффинге персонала на руководящей позиции 2+ лет,
+понимание тендерных процедур, B2B продажи, управление командой рекрутеров/аккаунтов.
+
+Кандидат:
+{card}
+
+Ответь JSON:
+{{"fit_type": "target|near_target|not_fit", "confidence": 0-100, "reason": "краткое обоснование"}}"""
+
+                        try:
+                            resp = client.chat.completions.create(
+                                model="gpt-4o",
+                                messages=[{"role": "user", "content": prompt}],
+                                temperature=0.1,
+                                max_tokens=200,
+                                response_format={"type": "json_object"},
+                            )
+                            score = json.loads(resp.choices[0].message.content)
+                        except Exception as e:
+                            score = {"fit_type": "not_fit", "confidence": 0, "reason": f"Ошибка: {e}"}
+
+                        # Save to DB (standard schema)
+                        last_comp = exp_list[0].get("company", "") if exp_list else ""
+                        last_pos = exp_list[0].get("position", "") if exp_list else ""
+                        fit = score.get("fit_type", "not_fit")
+                        relevant = 1 if fit in ("target", "near_target") else 0
+                        link = item.get("alternate_url", "")
+                        norm_link = link.split("?")[0].strip()
+                        
+                        conn.execute("""INSERT INTO scored_candidates 
+                            (run_date, normalized_link, candidate_title, last_job, salary,
+                             job_slug, relevant, fit_type, confidence, reason, source_subject)
+                            VALUES (date('now'),?,?,?,?,?,?,?,?,?,?)""",
+                            (norm_link, title, f"{last_pos} @ {last_comp}", sal_str,
+                             "outsource_manager", relevant, fit,
+                             score.get("confidence", 0), score.get("reason", ""),
+                             comp["name"]))
+                        conn.execute("INSERT OR IGNORE INTO seen_links VALUES (?)", (norm_link,))
+                        conn.commit()
+                        total_scored += 1
+
+                        _time.sleep(0.3)
+
+            except Exception as e:
+                task.update({"message": f"❌ {comp['name']}: {e}"})
+                logger.error(f"Outsource search error for {comp['name']}: {e}")
+
+            _time.sleep(0.5)
+
+        conn.close()
+        task.update({
+            "stage": "done",
+            "progress": 100,
+            "message": f"✅ Готово! Новых: {total_new}, оценено: {total_scored}"
+        })
+
+    import asyncio, concurrent.futures
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _run_sync)
+    return {"task_id": task_id}
+
+@app.get("/api/outsource/run/{task_id}/stream")
+async def api_outsource_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+    import asyncio
+
+    async def generate():
+        while True:
+            task = outsource_tasks.get(task_id, {"stage": "error", "message": "Task not found"})
+            yield f"data: {json.dumps(task, ensure_ascii=False)}\n\n"
+            if task.get("stage") in ("done", "error"):
+                break
+            await asyncio.sleep(1)
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 # ─── Run ───
 if __name__ == "__main__":

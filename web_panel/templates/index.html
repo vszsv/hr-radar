@@ -20,6 +20,7 @@
     <button @click="tab='screening'" :class="tab==='screening'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔍 Отбор</button>
     <button @click="tab='settings'" :class="tab==='settings'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔧 Настройки</button>
     <a :href="'/interview?key='+(new URLSearchParams(location.search).get('key')||'')" class="pb-2 whitespace-nowrap text-gray-500 hover:text-blue-500 flex items-center gap-1">🎥 Интервью</a>
+    <a :href="'/outsource?key='+(new URLSearchParams(location.search).get('key')||'')" class="pb-2 whitespace-nowrap text-gray-500 hover:text-blue-500 flex items-center gap-1">🏢 Аутсорсинг</a>
   </div>
 </header>
 
@@ -75,6 +76,9 @@
           <div class="text-xs text-gray-400" x-text="p.email"></div>
         </div>
         <div class="flex gap-2">
+          <button x-show="p.source==='hh_api'" @click="hhKeysOpen = hhKeysOpen === p.id ? null : p.id" class="px-3 py-1 rounded-full text-xs font-medium transition bg-purple-100 text-purple-700 hover:bg-purple-200">
+            🔑 Ключи HH
+          </button>
           <button @click="toggle(p.id, 'report_enabled')" class="px-3 py-1 rounded-full text-xs font-medium transition"
             :class="p.report_enabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'"
             x-text="p.report_enabled ? '📣 ON' : '🔕 OFF'"></button>
@@ -82,6 +86,41 @@
             :class="p.enabled ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-500'"
             x-text="p.enabled ? '✅ Вкл' : '❌ Выкл'"></button>
         </div>
+      </div>
+
+      <!-- HH Keys panel (outsource only) -->
+      <div x-show="hhKeysOpen === p.id" x-transition class="mb-4 bg-purple-50 rounded-lg p-3 space-y-2">
+        <div class="flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-purple-700">🔑 Компании для поиска HH</h4>
+          <div class="flex gap-2">
+            <button @click="hhCheckAll(p.id)" :disabled="hhChecking" class="px-2 py-1 bg-purple-200 text-purple-700 rounded text-xs hover:bg-purple-300 disabled:opacity-50">
+              <span x-show="!hhChecking">🔍 Проверить</span>
+              <span x-show="hhChecking">⏳...</span>
+            </button>
+          </div>
+        </div>
+        <div class="max-h-80 overflow-y-auto space-y-1">
+          <template x-for="(comp, ci) in hhCompanies" :key="ci">
+            <div class="flex items-center gap-2 text-xs bg-white rounded px-2 py-1.5">
+              <input type="checkbox" x-model="comp.enabled" @change="hhSave()" class="rounded">
+              <span x-show="(comp.last_count||0) > 1000" class="w-4 text-center">🔴</span>
+              <span x-show="(comp.last_count||0) > 500 && (comp.last_count||0) <= 1000" class="w-4 text-center">🟡</span>
+              <span x-show="(comp.last_count||0) > 10 && (comp.last_count||0) <= 500" class="w-4 text-center">🟢</span>
+              <span x-show="(comp.last_count||0) > 0 && (comp.last_count||0) <= 10" class="w-4 text-center">🔵</span>
+              <span x-show="comp.last_count === 0" class="w-4 text-center">⚪</span>
+              <span x-show="comp.last_count == null" class="w-4 text-center text-gray-300">—</span>
+              <div class="flex-1 min-w-0">
+                <span class="font-medium" x-text="comp.name"></span>
+                <span x-show="comp.directions" class="text-gray-400 ml-1" x-text="'· ' + (comp.directions||'').substring(0,40)"></span>
+              </div>
+              <span class="text-gray-400 hidden md:inline" x-text="comp.inn || ''"></span>
+              <span class="w-14 text-right font-mono font-medium"
+                :class="(comp.last_count||0) > 1000 ? 'text-red-600' : (comp.last_count||0) > 500 ? 'text-yellow-600' : (comp.last_count||0) > 0 ? 'text-green-600' : 'text-gray-300'"
+                x-text="comp.last_count ?? '—'"></span>
+            </div>
+          </template>
+        </div>
+        <div class="text-xs text-purple-500" x-text="hhCompanies.filter(c=>c.enabled).length + ' из ' + hhCompanies.length + ' вкл. | ' + hhCompanies.reduce((s,c)=>s+(c.last_count||0),0) + ' резюме'"></div>
       </div>
 
       <!-- Jobs -->
@@ -503,6 +542,9 @@ function panel() {
 
     _jobs: {},  // job collapse state
     _retro: {},  // retroscoring state
+    hhKeysOpen: null,  // which profile's HH keys panel is open
+    hhCompanies: [],
+    hhChecking: false,
     J(pid, slug) { const k=pid+'.'+slug; if(!this._jobs[k]) this._jobs[k]={open:false}; return this._jobs[k]; },
     S(pid, slug) { const k=pid+'.'+slug; if(!this._primary[k]) this._primary[k]={cands:null,loading:false,open:false,dates:[],currentDate:''}; return this._primary[k]; },
     D(pid, slug) { const k=pid+'.'+slug; if(!this._deep[k]) this._deep[k]={results:null,running:false,prog:'',filter:'all',importing:false,importRes:null,importSummary:''}; return this._deep[k]; },
@@ -526,6 +568,8 @@ function panel() {
       if(mdls.status==='fulfilled') this.models=mdls.value.models||[];
       if(prm.status==='fulfilled') this.prompts=prm.value.prompts||[];
       if(rts.status==='fulfilled') this.routes=rts.value.routes||{};
+      // Load HH companies for outsource
+      try { this.hhCompanies = await fetch(API('/api/outsource/companies')).then(r=>r.ok?r.json():[]); } catch(e) { this.hhCompanies=[]; }
     },
 
     fmtDate(d) {
@@ -706,7 +750,25 @@ function panel() {
       this.currentPrompt=name; this.promptText='';
       await fetch(API('/api/prompt/'+name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:''})});
       const prm=await fetch(API('/api/prompts')).then(r=>r.json()); this.prompts=prm.prompts||[];
-    }
+    },
+
+    // HH Keys management
+    async hhSave() {
+      await fetch(API('/api/outsource/companies'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.hhCompanies)});
+    },
+    async hhCheckAll() {
+      this.hhChecking = true;
+      for (let i = 0; i < this.hhCompanies.length; i++) {
+        if (!this.hhCompanies[i].enabled) continue;
+        try {
+          const r = await fetch(API('/api/outsource/check?idx='+i));
+          if (r.ok) { const d = await r.json(); this.hhCompanies[i].last_count = d.count; }
+        } catch(e) {}
+        await new Promise(r=>setTimeout(r,200));
+      }
+      this.hhChecking = false;
+      await this.hhSave();
+    },
   }
 }
 </script>

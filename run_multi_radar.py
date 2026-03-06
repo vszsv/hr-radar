@@ -44,6 +44,8 @@ class ProfileConfig:
     telegram_chat: str
     jobs: List[JobConfig]
     db_path: Path
+    source: str = "imap"  # "imap" or "hh_api"
+    hh_companies_file: str = ""
 
 
 def load_config() -> Dict[str, Any]:
@@ -96,11 +98,18 @@ def load_controls(config: Dict[str, Any]) -> Dict[str, Any]:
 def parse_profile_config(profile_name: str, profile_data: Dict, common: Dict) -> ProfileConfig:
     """Парсит конфиг профиля в структуру данных"""
     
-    # IMAP настройки
-    imap = profile_data['imap']
-    imap_pass = os.environ.get(imap['pass_env'])
-    if not imap_pass:
-        raise ValueError(f"Environment variable {imap['pass_env']} not set")
+    source = profile_data.get('source', 'imap')
+    
+    # IMAP настройки (optional for hh_api source)
+    imap_host = imap_port = imap_user = imap_pass = ""
+    if source == "imap":
+        imap = profile_data['imap']
+        imap_pass = os.environ.get(imap['pass_env'], '')
+        if not imap_pass:
+            raise ValueError(f"Environment variable {imap['pass_env']} not set")
+        imap_host = imap['host']
+        imap_port = imap['port']
+        imap_user = imap['user']
     
     # Telegram настройки
     telegram = profile_data['telegram']
@@ -127,14 +136,16 @@ def parse_profile_config(profile_name: str, profile_data: Dict, common: Dict) ->
     return ProfileConfig(
         name=profile_data['name'],
         description=profile_data['description'],
-        imap_host=imap['host'],
-        imap_port=imap['port'],
-        imap_user=imap['user'],
+        imap_host=imap_host,
+        imap_port=imap_port or 993,
+        imap_user=imap_user,
         imap_pass=imap_pass,
         telegram_token=tg_token,
         telegram_chat=tg_chat,
         jobs=jobs,
-        db_path=db_path
+        db_path=db_path,
+        source=source,
+        hh_companies_file=profile_data.get('hh_companies_file', ''),
     )
 
 
@@ -247,6 +258,83 @@ def fetch_candidates_from_email(profile: ProfileConfig) -> List[Dict]:
         
     except Exception as e:
         print(f"IMAP error for {profile.name}: {e}")
+    
+    return candidates
+
+
+def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
+    """Получает кандидатов через HH API по ключам компаний"""
+    candidates = []
+    
+    try:
+        from hh_api import hh_request
+        import time as _time
+        
+        companies_path = BASE / "data" / profile.hh_companies_file
+        if not companies_path.exists():
+            print(f"  ⚠️ Companies file not found: {companies_path}")
+            return candidates
+        
+        companies = json.loads(companies_path.read_text())
+        enabled = [c for c in companies if c.get("enabled", True)]
+        print(f"  📡 HH API: {len(enabled)} компаний включено")
+        
+        for comp in enabled:
+            hh_key = comp.get("hh_key", "")
+            if not hh_key:
+                continue
+            
+            try:
+                # Fetch up to 100 resumes per company (5 pages × 20)
+                for page in range(5):
+                    r = hh_request("GET", "/resumes", params={
+                        "text": hh_key,
+                        "per_page": "20",
+                        "page": str(page),
+                        "order_by": "publication_time",
+                    })
+                    data = r.json()
+                    items = data.get("items", [])
+                    
+                    for item in items:
+                        link = item.get("alternate_url", "")
+                        title = item.get("title", "")
+                        
+                        # Build resume text from brief card
+                        exp_list = item.get("experience", [])
+                        exp_text = ""
+                        for e in exp_list[:3]:
+                            exp_text += f"{e.get('position','')} в {e.get('company','')} ({e.get('start','')}-{e.get('end','н.в.')}). "
+                        
+                        salary = item.get("salary")
+                        sal_str = f"{salary['amount']} {salary['currency']}" if salary else ""
+                        area = (item.get("area") or {}).get("name", "")
+                        total_exp = item.get("total_experience", {})
+                        months = total_exp.get("months", 0) if total_exp else 0
+                        skills = ", ".join(item.get("skill_set", [])[:10])
+                        
+                        resume_text = f"Должность: {title}\nГород: {area}\nОпыт: {months // 12} лет {months % 12} мес\nЗарплата: {sal_str}\nНавыки: {skills}\nОпыт работы: {exp_text}"
+                        
+                        candidates.append({
+                            "link": link,
+                            "title": title,
+                            "resume_text": resume_text,
+                            "source_company": comp.get("name", ""),
+                        })
+                    
+                    if page >= data.get("pages", 1) - 1 or not items:
+                        break
+                    _time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"  ⚠️ HH API error for {comp.get('name','')}: {e}")
+            
+            _time.sleep(0.3)
+        
+        print(f"  📡 HH API: получено {len(candidates)} резюме")
+        
+    except Exception as e:
+        print(f"  ❌ HH API error: {e}")
     
     return candidates
 
@@ -667,9 +755,24 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
     # Получаем уже виденные ссылки
     seen_links = {row[0] for row in conn.execute("SELECT normalized_link FROM seen_links")}
     
-    # Получаем кандидатов из email
-    print(f"📧 Fetching candidates from {profile.imap_user}")
-    raw_candidates = fetch_candidates_from_email(profile)
+    # Получаем кандидатов
+    if profile.source == "hh_api":
+        print(f"📡 Fetching candidates via HH API")
+        api_candidates = fetch_candidates_from_hh_api(profile)
+        # Convert to expected format
+        raw_candidates = []
+        for c in api_candidates:
+            norm = normalize_link(c.get("link", ""))
+            raw_candidates.append({
+                "link": c["link"],
+                "normalized_link": norm,
+                "title": c.get("title", ""),
+                "resume_text": c.get("resume_text", ""),
+                "source_company": c.get("source_company", ""),
+            })
+    else:
+        print(f"📧 Fetching candidates from {profile.imap_user}")
+        raw_candidates = fetch_candidates_from_email(profile)
     
     # Дедупликация
     unique_candidates = []

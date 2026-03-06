@@ -71,6 +71,21 @@ profiles:
         emoji: "💼"
         description: "New Business Director / Manager — привлечение клиентов, работа с входящими лидами, брифами"
 
+  outsource_agencies:
+    name: "Аутсорсинг"
+    description: "Поиск руководителей для аутсорсинговых компаний"
+    source: "hh_api"
+    hh_companies_file: "outsource_companies.json"
+    telegram:
+      bot_token_env: "TELEGRAM_BOT_TOKEN"
+      chat_id_env: "TELEGRAM_CHAT_ID"
+    jobs:
+      - name: "Руководитель аутсорсинга"
+        slug: "outsource_manager"
+        prompt_file: "outsource_manager.txt"
+        emoji: "🏭"
+        description: "Руководитель отдела аутсорсинга / аутстаффинга персонала"
+
 # Общие настройки
 common:
   openai:
