@@ -1978,6 +1978,7 @@ async def api_interview_stream(task_id: str, key: str = Query("")):
 # ─── Event Companies (Autosearches) ───
 
 EVENT_COMPANIES_PATH = DATA_DIR / "event_companies.json"
+BTL_COMPANIES_PATH = DATA_DIR / "btl_companies.json"
 
 def _load_event_companies():
     if EVENT_COMPANIES_PATH.exists():
@@ -1986,6 +1987,14 @@ def _load_event_companies():
 
 def _save_event_companies(companies):
     EVENT_COMPANIES_PATH.write_text(json.dumps(companies, ensure_ascii=False, indent=2))
+
+def _load_btl_companies():
+    if BTL_COMPANIES_PATH.exists():
+        return json.loads(BTL_COMPANIES_PATH.read_text())
+    return []
+
+def _save_btl_companies(companies):
+    BTL_COMPANIES_PATH.write_text(json.dumps(companies, ensure_ascii=False, indent=2))
 
 @app.get("/autosearch")
 async def autosearch_page(request: Request, key: str = Query("")):
@@ -2170,6 +2179,185 @@ async def api_autosearch_stream(task_id: str, key: str = Query("")):
         sent = 0
         while True:
             task = _autosearch_tasks.get(task_id)
+            if not task:
+                yield {"data": json.dumps({"stage": "error", "message": "Task not found"})}
+                return
+            messages = task["messages"]
+            while sent < len(messages):
+                yield {"data": json.dumps(messages[sent])}
+                sent += 1
+            if task["status"] in ("done", "error"):
+                return
+            await asyncio.sleep(0.5)
+    return EventSourceResponse(generate())
+
+
+# ─── BTL Autosearch ───
+
+_btl_autosearch_tasks = {}
+
+@app.get("/api/autosearch/btl/companies")
+async def api_btl_autosearch_companies(key: str = Query("")):
+    check_key(key)
+    return _load_btl_companies()
+
+@app.post("/api/autosearch/btl/companies")
+async def api_btl_autosearch_save(request: Request, key: str = Query("")):
+    check_key(key)
+    data = await request.json()
+    _save_btl_companies(data)
+    return {"ok": True}
+
+@app.post("/api/autosearch/btl/toggle")
+async def api_btl_autosearch_toggle(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    idx = body.get("idx")
+    companies = _load_btl_companies()
+    if idx is None or idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    companies[idx]["enabled"] = not companies[idx].get("enabled", True)
+    _save_btl_companies(companies)
+    return {"ok": True, "enabled": companies[idx]["enabled"]}
+
+@app.get("/api/autosearch/btl/check")
+async def api_btl_autosearch_check(idx: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_btl_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"count": 0, "count_24h": 0}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        r = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "113"})
+        count = r.json().get("found", 0)
+    except Exception as e:
+        logger.error(f"HH BTL autosearch check error: {e}")
+        count = -1
+
+    count_24h = 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r2 = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "113", "date_from": date_from, "order_by": "publication_time"})
+        count_24h = r2.json().get("found", 0)
+    except:
+        pass
+
+    companies[idx]["last_count"] = count
+    companies[idx]["count_24h"] = count_24h
+    _save_btl_companies(companies)
+    return {"count": count, "count_24h": count_24h}
+
+@app.get("/api/autosearch/btl/preview")
+async def api_btl_autosearch_preview(idx: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_btl_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"items": []}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r = hh_request("GET", "/resumes", params={
+            "text": hh_key, "per_page": "5", "area": "113",
+            "date_from": date_from, "order_by": "publication_time"
+        })
+        data = r.json()
+        items = []
+        for item in data.get("items", []):
+            exp = item.get("experience", [])
+            last_job = f"{exp[0].get('company', '')} — {exp[0].get('position', '')}" if exp else "—"
+            salary = item.get("salary")
+            sal_str = f"{salary['amount']} {salary.get('currency', '')}" if salary else "—"
+            items.append({
+                "title": item.get("title", ""),
+                "url": item.get("alternate_url", ""),
+                "last_job": last_job,
+                "salary": sal_str,
+                "updated": item.get("updated_at", ""),
+                "area": (item.get("area") or {}).get("name", ""),
+            })
+        return {"items": items, "total_24h": data.get("found", 0)}
+    except Exception as e:
+        return {"items": [], "error": str(e)}
+
+@app.get("/api/autosearch/btl/stats")
+async def api_btl_autosearch_stats(key: str = Query("")):
+    check_key(key)
+    db_path = DATA_DIR / "btl_agencies.db"
+    scored = 0
+    relevant = 0
+    if db_path.exists():
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            scored = conn.execute("SELECT COUNT(*) FROM scored_candidates").fetchone()[0]
+            relevant = conn.execute("SELECT COUNT(*) FROM scored_candidates WHERE relevant=1").fetchone()[0]
+        except:
+            pass
+        conn.close()
+    return {"scored": scored, "relevant": relevant}
+
+@app.post("/api/autosearch/btl/run")
+async def api_btl_autosearch_run(key: str = Query("")):
+    check_key(key)
+    import uuid, threading
+    task_id = str(uuid.uuid4())[:8]
+    _btl_autosearch_tasks[task_id] = {"status": "running", "messages": [], "progress": 0}
+
+    def _run_sync():
+        import subprocess
+        try:
+            _btl_autosearch_tasks[task_id]["messages"].append({"stage": "progress", "message": "Запуск сканера btl_agencies...", "progress": 5})
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).parent.parent / "run_multi_radar.py"), "btl_agencies"],
+                capture_output=True, text=True, timeout=600,
+                cwd=str(Path(__file__).parent.parent),
+                env={**os.environ}
+            )
+            output = result.stdout + result.stderr
+            lines = [l for l in output.split('\n') if l.strip()]
+            for i, line in enumerate(lines):
+                _btl_autosearch_tasks[task_id]["messages"].append({
+                    "stage": "progress",
+                    "message": line[:200],
+                    "progress": min(95, 10 + int(85 * (i + 1) / max(len(lines), 1)))
+                })
+            if result.returncode == 0:
+                _btl_autosearch_tasks[task_id]["messages"].append({"stage": "done", "message": "Готово!", "progress": 100})
+            else:
+                _btl_autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": f"Код выхода: {result.returncode}", "progress": 0})
+            _btl_autosearch_tasks[task_id]["status"] = "done"
+        except Exception as e:
+            _btl_autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": str(e)[:200], "progress": 0})
+            _btl_autosearch_tasks[task_id]["status"] = "error"
+
+    threading.Thread(target=_run_sync, daemon=True).start()
+    return {"task_id": task_id}
+
+@app.get("/api/autosearch/btl/run/{task_id}/stream")
+async def api_btl_autosearch_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+    async def generate():
+        sent = 0
+        while True:
+            task = _btl_autosearch_tasks.get(task_id)
             if not task:
                 yield {"data": json.dumps({"stage": "error", "message": "Task not found"})}
                 return

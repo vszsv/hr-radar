@@ -41,11 +41,14 @@ profiles:
   btl_agencies:
     name: "BTL агентства"
     description: "Поиск кандидатов для BTL-агентств"
-    imap:
-      host: "imap.yandex.ru"
-      port: 993
-      user: "hrcp@btl-agency.ru"
-      pass_env: "IMAP_BTL_PASS"
+    source: "hh_api"
+    hh_companies_file: "btl_companies.json"
+    # Legacy IMAP config (kept for reference)
+    # imap:
+    #   host: "imap.yandex.ru"
+    #   port: 993
+    #   user: "hrcp@btl-agency.ru"
+    #   pass_env: "IMAP_BTL_PASS"
     telegram:
       bot_token_env: "TELEGRAM_BOT_TOKEN"
       chat_id_env: "TELEGRAM_CHAT_ID"
