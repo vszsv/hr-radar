@@ -336,6 +336,36 @@ async def api_vacancies(key: str = Query("")):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# ─── API: Autoflow results (deep scoring log) ───
+@app.get("/api/autoflow-results")
+async def api_autoflow_results(key: str = Query("")):
+    check_key(key)
+    controls_path = DATA_DIR / "radar_controls.json"
+    if not controls_path.exists():
+        return {"runs": []}
+    controls = json.loads(controls_path.read_text(encoding="utf-8"))
+    runs = []
+    for pname, pdata in controls.get("profiles", {}).items():
+        af = pdata.get("autoflow", {})
+        for job_slug, jdata in af.items():
+            lr = jdata.get("last_run")
+            if not lr:
+                continue
+            runs.append({
+                "profile": pname,
+                "job": job_slug,
+                "date": lr.get("date", ""),
+                "primary": lr.get("primary", 0),
+                "approved": lr.get("approved", 0),
+                "reviewed": lr.get("reviewed", 0),
+                "rejected": lr.get("rejected", 0),
+                "imported": lr.get("imported", 0),
+                "dupes": lr.get("dupes", 0),
+                "candidates": lr.get("candidates", []),
+            })
+    runs.sort(key=lambda x: x["date"], reverse=True)
+    return {"runs": runs}
+
 # ─── API: Today's results from email screening ───
 @app.get("/api/today/{profile_id}/{job_slug}")
 async def api_today_results(profile_id: str, job_slug: str, key: str = Query(""), date: str = Query("")):

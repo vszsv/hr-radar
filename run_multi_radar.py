@@ -938,6 +938,18 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
             
             # Save autoflow last run log
             try:
+                # Per-candidate details for panel display
+                candidates_detail = []
+                for r in deep_results:
+                    candidates_detail.append({
+                        "name": r.get("candidateName", ""),
+                        "link": r.get("link", ""),
+                        "score": r.get("score", 0),
+                        "status": r.get("fw_status", ""),
+                        "reason": r.get("reason", "")[:150],
+                    })
+                candidates_detail.sort(key=lambda x: x.get("score", 0), reverse=True)
+
                 last_run = {
                     "date": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M"),
                     "primary": len(relevant),
@@ -947,6 +959,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                     "imported": imported,
                     "dupes": dupes,
                     "errors": errors,
+                    "candidates": candidates_detail,
                 }
                 af["last_run"] = last_run
                 # Re-save controls with updated last_run
