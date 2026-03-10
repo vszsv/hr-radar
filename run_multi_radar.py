@@ -281,7 +281,8 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
         print(f"  📡 HH API: {len(enabled)} компаний включено")
         
         # Only fetch resumes updated in the last 24 hours
-        date_from = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        import datetime as _dt_mod
+        date_from = (_dt_mod.datetime.now(_dt_mod.timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
         
         # Industry filter: 11 = СМИ, маркетинг, реклама, BTL, PR, дизайн, продюсирование
         # Note: for resume search, industry filters by candidate's experience industries.
@@ -332,10 +333,14 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
                         
                         resume_text = f"Должность: {title}\nГород: {area}\nОпыт: {months // 12} лет {months % 12} мес\nЗарплата: {sal_str}\nНавыки: {skills}\nОпыт работы: {exp_text}"
                         
+                        last_job = f"{exp_list[0].get('company','')} — {exp_list[0].get('position','')}" if exp_list else ""
+                        
                         candidates.append({
                             "link": link,
                             "title": title,
                             "resume_text": resume_text,
+                            "salary_str": sal_str,
+                            "lastJob": last_job,
                             "source_company": comp.get("name", ""),
                         })
                     
@@ -437,7 +442,7 @@ def score_candidates_for_job(candidates: List[Dict], job: JobConfig, openai_conf
     def score_batch(batch: List[Dict]) -> List[Dict]:
         listing = []
         for i, c in enumerate(batch, start=1):
-            listing.append(f"[{i}] {c['title']} | {c['description']}")
+            listing.append(f"[{i}] {c['title']} | {c.get('description', c.get('resume_text', ''))}")
         
         user_text = f"КАНДИДАТЫ НА РОЛЬ {job.name.upper()}:\n\n" + "\n".join(listing)
         
@@ -785,6 +790,10 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                 "normalized_link": norm,
                 "title": c.get("title", ""),
                 "resume_text": c.get("resume_text", ""),
+                "description": c.get("resume_text", ""),  # alias for scoring
+                "lastJob": c.get("source_company", ""),
+                "salary": c.get("salary_str", ""),
+                "source_subject": f"HH API: {c.get('source_company', '')}",
                 "source_company": c.get("source_company", ""),
             })
     else:

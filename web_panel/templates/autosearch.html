@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HR Radar — Автопоиски</title>
+  <title>HR Radar — Автопоиски Event</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
@@ -37,7 +37,7 @@
       </div>
       <div class="bg-white rounded-xl shadow-sm p-4 text-center">
         <div class="text-2xl font-bold text-orange-600" x-text="scoredCount">—</div>
-        <div class="text-xs text-gray-500">Оценено (всего)</div>
+        <div class="text-xs text-gray-500">Оценено</div>
       </div>
     </div>
 
@@ -47,17 +47,44 @@
         <span x-show="!checking">🔍 Проверить все</span>
         <span x-show="checking" x-text="'⏳ Проверяю... '+checkProgress+'/'+companies.filter(c=>c.enabled).length"></span>
       </button>
+      <button @click="runSearch()" :disabled="running" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors">
+        <span x-show="!running">🚀 Запустить поиск + скоринг</span>
+        <span x-show="running">⏳ Идёт поиск...</span>
+      </button>
+      <button @click="showAddForm = !showAddForm" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+        ➕ Добавить компанию
+      </button>
       <button @click="toggleAll()" class="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors">
         ⚡ Вкл/выкл все
       </button>
-      <div class="ml-auto text-xs text-gray-400">
-        <span x-show="relevantCount > 0" class="text-green-600 font-medium" x-text="'✅ ' + relevantCount + ' подходящих'"></span>
+      <div class="ml-auto">
+        <input x-model="search" type="text" placeholder="🔍 Поиск..." class="border rounded-lg px-3 py-2 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-blue-300">
       </div>
     </div>
 
-    <!-- Search filter -->
-    <div class="bg-white rounded-xl shadow-sm p-3">
-      <input x-model="search" type="text" placeholder="🔍 Поиск по названию..." class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+    <!-- Add company form -->
+    <div x-show="showAddForm" x-transition class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <h3 class="font-semibold text-gray-700">Добавить компанию</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input x-model="newCompany.name" placeholder="Название" class="border rounded-lg px-3 py-2 text-sm">
+        <input x-model="newCompany.hh_key" placeholder='HH-ключ (WORKPLACE_ORGANIZATION:"Название")' class="border rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div class="flex gap-2">
+        <button @click="addCompany()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Добавить</button>
+        <button @click="showAddForm=false" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Отмена</button>
+      </div>
+    </div>
+
+    <!-- Search progress -->
+    <div x-show="running" class="bg-blue-50 rounded-xl p-4">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+        <span class="text-sm font-medium text-blue-800" x-text="runStatus"></span>
+      </div>
+      <div class="bg-blue-200 rounded-full h-2">
+        <div class="bg-blue-600 rounded-full h-2 transition-all" :style="'width:'+runProgress+'%'"></div>
+      </div>
+      <div class="mt-2 text-xs text-blue-600 max-h-32 overflow-y-auto" x-html="runLog"></div>
     </div>
 
     <!-- Companies table -->
@@ -67,44 +94,99 @@
           <tr>
             <th class="px-3 py-2 text-left w-8">Вкл</th>
             <th class="px-3 py-2 text-left">Компания</th>
-            <th class="px-3 py-2 text-center w-24">Резюме</th>
-            <th class="px-3 py-2 text-center w-20">Статус</th>
-            <th class="px-3 py-2 text-center w-20">Действия</th>
+            <th class="px-3 py-2 text-center">Всего</th>
+            <th class="px-3 py-2 text-center">За 24ч</th>
+            <th class="px-3 py-2 text-center">Статус</th>
+            <th class="px-3 py-2 text-center">Действия</th>
           </tr>
         </thead>
         <tbody class="divide-y">
           <template x-for="(comp, idx) in filteredCompanies" :key="comp._idx">
-            <tr :class="comp.enabled ? 'bg-white' : 'bg-gray-50 opacity-60'">
-              <td class="px-3 py-2">
-                <button @click="toggleOne(comp._idx)" class="text-lg" :title="comp.enabled ? 'Выключить' : 'Включить'">
-                  <span x-show="comp.enabled" class="text-green-500">🟢</span>
-                  <span x-show="!comp.enabled" class="text-gray-300">⚪</span>
-                </button>
+            <tr :class="comp.enabled ? 'bg-white' : 'bg-gray-50 opacity-60'" class="cursor-pointer hover:bg-blue-50/50" @click="previewCompany(comp._idx)">
+              <td class="px-3 py-2" @click.stop>
+                <input type="checkbox" :checked="comp.enabled" @change="toggleOne(comp._idx)" class="rounded">
               </td>
               <td class="px-3 py-2">
                 <div class="font-medium text-gray-800" x-text="comp.name"></div>
-                <div class="text-xs text-gray-400 truncate max-w-md" x-text="comp.hh_key?.substring(0,80)+'...'"></div>
+                <div class="text-xs text-gray-400 truncate max-w-xs" x-text="comp.hh_key?.substring(0,60)+'...'"></div>
               </td>
               <td class="px-3 py-2 text-center">
                 <span x-show="comp.last_count !== null && comp.last_count !== undefined" class="font-mono font-medium"
-                      :class="comp.last_count > 100 ? 'text-orange-600' : comp.last_count > 0 ? 'text-green-600' : 'text-gray-400'"
+                      :class="comp.last_count > 1000 ? 'text-red-600' : comp.last_count > 500 ? 'text-yellow-600' : comp.last_count > 0 ? 'text-green-600' : 'text-gray-400'"
                       x-text="comp.last_count"></span>
                 <span x-show="comp.last_count === null || comp.last_count === undefined" class="text-gray-300">—</span>
               </td>
               <td class="px-3 py-2 text-center">
+                <span x-show="comp.count_24h !== null && comp.count_24h !== undefined && comp.count_24h > 0" class="font-mono font-bold text-blue-600" x-text="comp.count_24h"></span>
+                <span x-show="comp.count_24h === 0" class="text-gray-300">0</span>
+                <span x-show="comp.count_24h === null || comp.count_24h === undefined" class="text-gray-300">—</span>
+              </td>
+              <td class="px-3 py-2 text-center">
                 <span x-show="comp.checking" class="animate-spin inline-block">⏳</span>
-                <span x-show="!comp.checking && comp.last_count > 100" class="text-orange-500 text-xs">🟠 много</span>
-                <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 100 && comp.last_count > 10" class="text-green-500 text-xs">🟢 ок</span>
+                <span x-show="!comp.checking && comp.last_count > 1000" class="text-red-500 text-xs">🔴 шумно</span>
+                <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 1000 && comp.last_count > 500" class="text-yellow-500 text-xs">🟡 много</span>
+                <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 500 && comp.last_count > 10" class="text-green-500 text-xs">🟢 ок</span>
                 <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 10 && comp.last_count > 0" class="text-blue-500 text-xs">🔵 мало</span>
                 <span x-show="!comp.checking && comp.last_count === 0" class="text-gray-400 text-xs">⚪ пусто</span>
               </td>
-              <td class="px-3 py-2 text-center">
-                <button @click="checkOne(comp._idx)" :disabled="comp.checking" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 disabled:opacity-50">🔍</button>
+              <td class="px-3 py-2 text-center" @click.stop>
+                <div class="flex gap-1 justify-center">
+                  <button @click="checkOne(comp._idx)" :disabled="comp.checking" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 disabled:opacity-50">🔍</button>
+                  <button @click="editCompany(comp._idx)" class="px-2 py-1 bg-gray-50 text-gray-600 rounded text-xs hover:bg-gray-100">✏️</button>
+                  <button @click="removeCompany(comp._idx)" class="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100">🗑️</button>
+                </div>
               </td>
             </tr>
           </template>
         </tbody>
       </table>
+    </div>
+
+    <!-- Preview modal -->
+    <div x-show="previewIdx !== null" x-transition class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="previewIdx=null">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-gray-700" x-text="previewIdx !== null ? '👁 ' + companies[previewIdx]?.name + ' — обновлено за 24ч' : ''"></h3>
+          <button @click="previewIdx=null" class="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+        </div>
+        <div x-show="previewLoading" class="text-center py-8 text-gray-400">
+          <div class="animate-spin inline-block h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full mb-2"></div>
+          <div>Загрузка...</div>
+        </div>
+        <div x-show="!previewLoading && previewItems.length === 0" class="text-center py-8 text-gray-400">
+          Нет обновлённых резюме за последние 24 часа
+        </div>
+        <div x-show="!previewLoading && previewItems.length > 0" class="space-y-3">
+          <div class="text-xs text-gray-400 mb-2" x-text="'Найдено за 24ч: ' + previewTotal"></div>
+          <template x-for="item in previewItems" :key="item.url">
+            <a :href="item.url" target="_blank" class="block p-3 rounded-lg border hover:border-blue-300 hover:bg-blue-50/50 transition-colors">
+              <div class="font-medium text-gray-800" x-text="item.title"></div>
+              <div class="text-sm text-gray-500 mt-1">🏢 <span x-text="item.last_job"></span></div>
+              <div class="flex gap-4 mt-1 text-xs text-gray-400">
+                <span x-text="'💰 ' + item.salary"></span>
+                <span x-text="'📍 ' + item.area"></span>
+              </div>
+            </a>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit modal -->
+    <div x-show="editIdx !== null" x-transition class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="editIdx=null">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-3">
+        <h3 class="font-semibold text-gray-700">Редактировать компанию</h3>
+        <template x-if="editIdx !== null">
+          <div class="space-y-3">
+            <input x-model="companies[editIdx].name" placeholder="Название" class="border rounded-lg px-3 py-2 text-sm w-full">
+            <textarea x-model="companies[editIdx].hh_key" placeholder="HH-ключ" class="border rounded-lg px-3 py-2 text-sm w-full h-24 font-mono text-xs"></textarea>
+            <div class="flex gap-2">
+              <button @click="saveCompanies(); editIdx=null" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Сохранить</button>
+              <button @click="editIdx=null" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium">Отмена</button>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -116,9 +198,20 @@ function autosearchApp() {
     companies: [],
     checking: false,
     checkProgress: 0,
+    running: false,
+    runStatus: '',
+    runProgress: 0,
+    runLog: '',
+    showAddForm: false,
+    editIdx: null,
+    previewIdx: null,
+    previewItems: [],
+    previewTotal: 0,
+    previewLoading: false,
     scoredCount: '—',
     relevantCount: 0,
     search: '',
+    newCompany: { name: '', hh_key: '' },
 
     get totalResumes() {
       return this.companies.reduce((s, c) => s + (c.last_count || 0), 0);
@@ -174,6 +267,22 @@ function autosearchApp() {
       } catch(e) {}
     },
 
+    async previewCompany(idx) {
+      this.previewIdx = idx;
+      this.previewLoading = true;
+      this.previewItems = [];
+      this.previewTotal = 0;
+      try {
+        const r = await fetch(`/api/autosearch/preview?key=${this.key}&idx=${idx}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.previewItems = d.items || [];
+          this.previewTotal = d.total_24h || 0;
+        }
+      } catch(e) {}
+      this.previewLoading = false;
+    },
+
     async checkOne(idx) {
       this.companies[idx].checking = true;
       try {
@@ -181,6 +290,7 @@ function autosearchApp() {
         if (r.ok) {
           const d = await r.json();
           this.companies[idx].last_count = d.count;
+          this.companies[idx].count_24h = d.count_24h;
         }
       } catch(e) {}
       this.companies[idx].checking = false;
@@ -193,15 +303,80 @@ function autosearchApp() {
         if (!this.companies[i].enabled) continue;
         await this.checkOne(i);
         this.checkProgress++;
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 200));
       }
       this.checking = false;
+      await this.saveCompanies();
+    },
+
+    async addCompany() {
+      if (!this.newCompany.name || !this.newCompany.hh_key) return;
+      this.companies.push({
+        ...this.newCompany,
+        enabled: true,
+        last_count: null,
+      });
+      await this.saveCompanies();
+      this.newCompany = { name: '', hh_key: '' };
+      this.showAddForm = false;
+    },
+
+    editCompany(idx) {
+      this.editIdx = idx;
+    },
+
+    async removeCompany(idx) {
+      if (!confirm(`Удалить ${this.companies[idx].name}?`)) return;
+      this.companies.splice(idx, 1);
+      await this.saveCompanies();
     },
 
     toggleAll() {
       const allEnabled = this.companies.every(c => c.enabled);
       this.companies.forEach(c => c.enabled = !allEnabled);
       this.saveCompanies();
+    },
+
+    async runSearch() {
+      if (!confirm('Запустить поиск и скоринг по всем включённым компаниям?')) return;
+      this.running = true;
+      this.runStatus = 'Запуск...';
+      this.runProgress = 0;
+      this.runLog = '';
+      // TODO: implement run endpoint for event autosearch
+      try {
+        const r = await fetch(`/api/autosearch/run?key=${this.key}`, { method: 'POST' });
+        const data = await r.json();
+        if (data.error) {
+          this.runStatus = 'Ошибка: ' + data.error;
+          this.running = false;
+          return;
+        }
+        const taskId = data.task_id;
+        const es = new EventSource(`/api/autosearch/run/${taskId}/stream?key=${this.key}`);
+        es.onmessage = (e) => {
+          const d = JSON.parse(e.data);
+          if (d.stage === 'progress') {
+            this.runStatus = d.message || 'Идёт...';
+            this.runProgress = d.progress || 0;
+            this.runLog += `<div>${d.message}</div>`;
+          } else if (d.stage === 'done') {
+            this.runStatus = 'Готово!';
+            this.runProgress = 100;
+            this.running = false;
+            this.loadStats();
+            es.close();
+          } else if (d.stage === 'error') {
+            this.runStatus = 'Ошибка: ' + d.message;
+            this.running = false;
+            es.close();
+          }
+        };
+        es.onerror = () => { this.running = false; es.close(); };
+      } catch(e) {
+        this.runStatus = 'Ошибка запуска: ' + e;
+        this.running = false;
+      }
     },
   };
 }

@@ -2043,10 +2043,65 @@ async def api_autosearch_check(idx: int = Query(0), key: str = Query("")):
         logger.error(f"HH autosearch check error: {e}")
         count = -1
 
+    # Check 24h count too
+    count_24h = 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r2 = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "113", "date_from": date_from, "order_by": "publication_time"})
+        count_24h = r2.json().get("found", 0)
+    except:
+        pass
+
     # Save count back
     companies[idx]["last_count"] = count
+    companies[idx]["count_24h"] = count_24h
     _save_event_companies(companies)
-    return {"count": count}
+    return {"count": count, "count_24h": count_24h}
+
+
+@app.get("/api/autosearch/preview")
+async def api_autosearch_preview(idx: int = Query(0), key: str = Query("")):
+    """Get preview of top 5 resumes for a company."""
+    check_key(key)
+    companies = _load_event_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"items": []}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r = hh_request("GET", "/resumes", params={
+            "text": hh_key, "per_page": "5", "area": "113",
+            "date_from": date_from, "order_by": "publication_time"
+        })
+        data = r.json()
+        items = []
+        for item in data.get("items", []):
+            exp = item.get("experience", [])
+            last_job = f"{exp[0].get('company', '')} — {exp[0].get('position', '')}" if exp else "—"
+            salary = item.get("salary")
+            sal_str = f"{salary['amount']} {salary.get('currency', '')}" if salary else "—"
+            items.append({
+                "title": item.get("title", ""),
+                "url": item.get("alternate_url", ""),
+                "last_job": last_job,
+                "salary": sal_str,
+                "updated": item.get("updated_at", ""),
+                "area": (item.get("area") or {}).get("name", ""),
+            })
+        return {"items": items, "total_24h": data.get("found", 0)}
+    except Exception as e:
+        return {"items": [], "error": str(e)}
+
 
 @app.get("/api/autosearch/stats")
 async def api_autosearch_stats(key: str = Query("")):
@@ -2064,6 +2119,68 @@ async def api_autosearch_stats(key: str = Query("")):
             pass
         conn.close()
     return {"scored": scored, "relevant": relevant}
+
+
+# ─── Event Autosearch Run ───
+
+_autosearch_tasks = {}
+
+@app.post("/api/autosearch/run")
+async def api_autosearch_run(key: str = Query("")):
+    check_key(key)
+    import uuid, threading
+    task_id = str(uuid.uuid4())[:8]
+    _autosearch_tasks[task_id] = {"status": "running", "messages": [], "progress": 0}
+
+    def _run_sync():
+        import subprocess
+        try:
+            _autosearch_tasks[task_id]["messages"].append({"stage": "progress", "message": "Запуск сканера event_agencies...", "progress": 5})
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).parent.parent / "run_multi_radar.py"), "event_agencies"],
+                capture_output=True, text=True, timeout=600,
+                cwd=str(Path(__file__).parent.parent),
+                env={**os.environ}
+            )
+            output = result.stdout + result.stderr
+            lines = [l for l in output.split('\n') if l.strip()]
+            for i, line in enumerate(lines):
+                _autosearch_tasks[task_id]["messages"].append({
+                    "stage": "progress",
+                    "message": line[:200],
+                    "progress": min(95, 10 + int(85 * (i + 1) / max(len(lines), 1)))
+                })
+            if result.returncode == 0:
+                _autosearch_tasks[task_id]["messages"].append({"stage": "done", "message": "Готово!", "progress": 100})
+            else:
+                _autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": f"Код выхода: {result.returncode}", "progress": 0})
+            _autosearch_tasks[task_id]["status"] = "done"
+        except Exception as e:
+            _autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": str(e)[:200], "progress": 0})
+            _autosearch_tasks[task_id]["status"] = "error"
+
+    threading.Thread(target=_run_sync, daemon=True).start()
+    return {"task_id": task_id}
+
+
+@app.get("/api/autosearch/run/{task_id}/stream")
+async def api_autosearch_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+    async def generate():
+        sent = 0
+        while True:
+            task = _autosearch_tasks.get(task_id)
+            if not task:
+                yield {"data": json.dumps({"stage": "error", "message": "Task not found"})}
+                return
+            messages = task["messages"]
+            while sent < len(messages):
+                yield {"data": json.dumps(messages[sent])}
+                sent += 1
+            if task["status"] in ("done", "error"):
+                return
+            await asyncio.sleep(0.5)
+    return EventSourceResponse(generate())
 
 
 # ─── Outsource ───
