@@ -84,7 +84,7 @@
                 :class="c.score >= 7 ? 'text-green-700 bg-green-100' : c.score >= 4 ? 'text-yellow-700 bg-yellow-100' : 'text-red-700 bg-red-100'"
                 x-text="c.score + '/10'"></span>
               <div class="flex-1 min-w-0">
-                <a :href="c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block" x-text="c.name"></a>
+                <a :href="c.fw_link || c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block" x-text="c.name"></a>
                 <div class="text-xs text-gray-500 line-clamp-2" x-text="c.reason"></div>
               </div>
               <span class="flex-shrink-0 text-xs px-2 py-0.5 rounded-full"
