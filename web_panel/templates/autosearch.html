@@ -139,6 +139,16 @@
             </tr>
           </template>
         </tbody>
+        <tfoot class="bg-gray-100 border-t-2 border-gray-300">
+          <tr class="font-semibold text-gray-700">
+            <td class="px-3 py-3"></td>
+            <td class="px-3 py-3">Итого</td>
+            <td class="px-3 py-3 text-center font-mono" x-text="companies.reduce((s,c) => s + (c.last_count || 0), 0)"></td>
+            <td class="px-3 py-3 text-center font-mono text-blue-600" x-text="companies.reduce((s,c) => s + (c.count_24h || 0), 0)"></td>
+            <td class="px-3 py-3"></td>
+            <td class="px-3 py-3"></td>
+          </tr>
+        </tfoot>
       </table>
     </div>
 

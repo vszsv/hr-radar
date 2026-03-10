@@ -313,6 +313,9 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
                     r = hh_request("GET", "/resumes", params=params)
                     data = r.json()
                     items = data.get("items", [])
+                    if page == 0:
+                        # Save 24h count for panel (how many updated in last 24h)
+                        comp["count_24h"] = data.get("found", 0)
                     
                     for item in items:
                         link = item.get("alternate_url", "")
@@ -353,6 +356,12 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
             
             _time.sleep(0.3)
         
+        # Persist updated 24h counts for panel visibility
+        try:
+            companies_path.write_text(json.dumps(companies, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            print(f"  ⚠️ Failed to save companies counts: {e}")
+
         print(f"  📡 HH API: получено {len(candidates)} резюме")
         
     except Exception as e:
