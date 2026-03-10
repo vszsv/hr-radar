@@ -269,6 +269,7 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
     try:
         from hh_api import hh_request
         import time as _time
+        from datetime import datetime, timedelta
         
         companies_path = BASE / "data" / profile.hh_companies_file
         if not companies_path.exists():
@@ -279,20 +280,36 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
         enabled = [c for c in companies if c.get("enabled", True)]
         print(f"  📡 HH API: {len(enabled)} компаний включено")
         
+        # Only fetch resumes updated in the last 24 hours
+        date_from = (datetime.utcnow() - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        
+        # Industry filter: 11 = СМИ, маркетинг, реклама, BTL, PR, дизайн, продюсирование
+        # Note: for resume search, industry filters by candidate's experience industries.
+        # Since WORKPLACE_ORGANIZATION queries are already company-specific, industry filter
+        # is optional — enable if needed to reduce noise.
+        use_industry_filter = False
+        industry_id = "11"
+        
         for comp in enabled:
             hh_key = comp.get("hh_key", "")
             if not hh_key:
                 continue
             
             try:
-                # Fetch up to 100 resumes per company (5 pages × 20)
+                # Fetch resumes updated in last 24h, Russia only
                 for page in range(5):
-                    r = hh_request("GET", "/resumes", params={
+                    params = {
                         "text": hh_key,
                         "per_page": "20",
                         "page": str(page),
                         "order_by": "publication_time",
-                    })
+                        "date_from": date_from,
+                        "area": "113",  # Russia
+                    }
+                    if use_industry_filter:
+                        params["industry"] = industry_id
+                    
+                    r = hh_request("GET", "/resumes", params=params)
                     data = r.json()
                     items = data.get("items", [])
                     

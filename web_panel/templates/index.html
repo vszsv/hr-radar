@@ -10,19 +10,9 @@
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="panel()" x-init="init()">
 
-<header class="bg-white shadow-sm sticky top-0 z-50">
-  <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-    <h1 class="text-lg font-bold text-gray-800">🎯 HR Radar</h1>
-    <span class="text-xs text-gray-400" x-text="lastUpdate"></span>
-  </div>
-  <div class="max-w-4xl mx-auto px-4 flex gap-4 overflow-x-auto text-sm border-b">
-    <button @click="tab='dashboard'" :class="tab==='dashboard'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">📊 Дашборд</button>
-    <button @click="tab='screening'" :class="tab==='screening'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔍 Отбор</button>
-    <button @click="tab='settings'" :class="tab==='settings'?'tab-active':'text-gray-500'" class="pb-2 whitespace-nowrap">🔧 Настройки</button>
-    <a :href="'/interview?key='+(new URLSearchParams(location.search).get('key')||'')" class="pb-2 whitespace-nowrap text-gray-500 hover:text-blue-500 flex items-center gap-1">🎥 Интервью</a>
-    <a :href="'/outsource?key='+(new URLSearchParams(location.search).get('key')||'')" class="pb-2 whitespace-nowrap text-gray-500 hover:text-blue-500 flex items-center gap-1">🏢 Аутсорсинг</a>
-  </div>
-</header>
+{% include 'nav.html' %}
+
+<!-- Sub-tabs removed — navigation is now in the unified top nav -->
 
 <main class="max-w-4xl mx-auto px-4 py-4">
 
@@ -532,7 +522,7 @@ function panel() {
   const API = (p) => BASE + p + (p.includes('?') ? '&' : '?') + 'key=' + KEY;
 
   return {
-    tab: 'dashboard', lastUpdate: '',
+    tab: new URLSearchParams(location.search).get('tab') || 'dashboard', lastUpdate: '',
     dashboard: [], profiles: [], vacancies: [], routes: {},
     selectedModel: 'gpt-5.2', models: [],
     config: {}, prompts: [], currentPrompt: '', promptText: '',

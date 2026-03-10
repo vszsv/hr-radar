@@ -1975,6 +1975,97 @@ async def api_interview_stream(task_id: str, key: str = Query("")):
     return EventSourceResponse(event_generator())
 
 
+# ─── Event Companies (Autosearches) ───
+
+EVENT_COMPANIES_PATH = DATA_DIR / "event_companies.json"
+
+def _load_event_companies():
+    if EVENT_COMPANIES_PATH.exists():
+        return json.loads(EVENT_COMPANIES_PATH.read_text())
+    return []
+
+def _save_event_companies(companies):
+    EVENT_COMPANIES_PATH.write_text(json.dumps(companies, ensure_ascii=False, indent=2))
+
+@app.get("/autosearch")
+async def autosearch_page(request: Request, key: str = Query("")):
+    check_key(key)
+    return templates.TemplateResponse("autosearch.html", {"request": request, "key": key})
+
+@app.get("/autosearch/btl")
+async def btl_autosearch_page(request: Request, key: str = Query("")):
+    check_key(key)
+    return templates.TemplateResponse("btl_autosearch.html", {"request": request, "key": key})
+
+@app.get("/api/autosearch/companies")
+async def api_autosearch_companies(key: str = Query("")):
+    check_key(key)
+    return _load_event_companies()
+
+@app.post("/api/autosearch/companies")
+async def api_autosearch_save(request: Request, key: str = Query("")):
+    check_key(key)
+    data = await request.json()
+    _save_event_companies(data)
+    return {"ok": True}
+
+@app.post("/api/autosearch/toggle")
+async def api_autosearch_toggle(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    idx = body.get("idx")
+    companies = _load_event_companies()
+    if idx is None or idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    companies[idx]["enabled"] = not companies[idx].get("enabled", True)
+    _save_event_companies(companies)
+    return {"ok": True, "enabled": companies[idx]["enabled"]}
+
+@app.get("/api/autosearch/check")
+async def api_autosearch_check(idx: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_event_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"count": 0}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        r = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "113"})
+        count = r.json().get("found", 0)
+    except Exception as e:
+        logger.error(f"HH autosearch check error: {e}")
+        count = -1
+
+    # Save count back
+    companies[idx]["last_count"] = count
+    _save_event_companies(companies)
+    return {"count": count}
+
+@app.get("/api/autosearch/stats")
+async def api_autosearch_stats(key: str = Query("")):
+    check_key(key)
+    db_path = DATA_DIR / "event_agencies.db"
+    scored = 0
+    relevant = 0
+    if db_path.exists():
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            scored = conn.execute("SELECT COUNT(*) FROM scored_candidates").fetchone()[0]
+            relevant = conn.execute("SELECT COUNT(*) FROM scored_candidates WHERE relevant=1").fetchone()[0]
+        except:
+            pass
+        conn.close()
+    return {"scored": scored, "relevant": relevant}
+
+
 # ─── Outsource ───
 
 OUTSOURCE_COMPANIES_PATH = DATA_DIR / "outsource_companies.json"
@@ -1990,7 +2081,7 @@ def _save_outsource_companies(companies):
 @app.get("/outsource")
 async def outsource_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("outsource.html", {"request": request})
+    return templates.TemplateResponse("outsource.html", {"request": request, "key": key})
 
 @app.get("/api/outsource/companies")
 async def api_outsource_companies(key: str = Query("")):

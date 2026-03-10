@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Radar — Автопоиски</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="autosearchApp()">
+
+  {% include 'nav.html' %}
+
+  <!-- Page header -->
+  <div class="bg-white border-b">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <h2 class="text-base font-semibold text-gray-700">🎪 Автопоиски — Event агентства</h2>
+      <span class="text-xs text-gray-400" x-text="companies.filter(c=>c.enabled).length + '/' + companies.length + ' вкл.'"></span>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Stats bar -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-white rounded-xl shadow-sm p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600" x-text="companies.length">0</div>
+        <div class="text-xs text-gray-500">Компаний</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-4 text-center">
+        <div class="text-2xl font-bold text-green-600" x-text="companies.filter(c=>c.enabled).length">0</div>
+        <div class="text-xs text-gray-500">Включено</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600" x-text="totalResumes">0</div>
+        <div class="text-xs text-gray-500">Резюме найдено</div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm p-4 text-center">
+        <div class="text-2xl font-bold text-orange-600" x-text="scoredCount">—</div>
+        <div class="text-xs text-gray-500">Оценено (всего)</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3">
+      <button @click="checkAllCounts()" :disabled="checking" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+        <span x-show="!checking">🔍 Проверить все</span>
+        <span x-show="checking" x-text="'⏳ Проверяю... '+checkProgress+'/'+companies.filter(c=>c.enabled).length"></span>
+      </button>
+      <button @click="toggleAll()" class="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors">
+        ⚡ Вкл/выкл все
+      </button>
+      <div class="ml-auto text-xs text-gray-400">
+        <span x-show="relevantCount > 0" class="text-green-600 font-medium" x-text="'✅ ' + relevantCount + ' подходящих'"></span>
+      </div>
+    </div>
+
+    <!-- Search filter -->
+    <div class="bg-white rounded-xl shadow-sm p-3">
+      <input x-model="search" type="text" placeholder="🔍 Поиск по названию..." class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+    </div>
+
+    <!-- Companies table -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
+          <tr>
+            <th class="px-3 py-2 text-left w-8">Вкл</th>
+            <th class="px-3 py-2 text-left">Компания</th>
+            <th class="px-3 py-2 text-center w-24">Резюме</th>
+            <th class="px-3 py-2 text-center w-20">Статус</th>
+            <th class="px-3 py-2 text-center w-20">Действия</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y">
+          <template x-for="(comp, idx) in filteredCompanies" :key="comp._idx">
+            <tr :class="comp.enabled ? 'bg-white' : 'bg-gray-50 opacity-60'">
+              <td class="px-3 py-2">
+                <button @click="toggleOne(comp._idx)" class="text-lg" :title="comp.enabled ? 'Выключить' : 'Включить'">
+                  <span x-show="comp.enabled" class="text-green-500">🟢</span>
+                  <span x-show="!comp.enabled" class="text-gray-300">⚪</span>
+                </button>
+              </td>
+              <td class="px-3 py-2">
+                <div class="font-medium text-gray-800" x-text="comp.name"></div>
+                <div class="text-xs text-gray-400 truncate max-w-md" x-text="comp.hh_key?.substring(0,80)+'...'"></div>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span x-show="comp.last_count !== null && comp.last_count !== undefined" class="font-mono font-medium"
+                      :class="comp.last_count > 100 ? 'text-orange-600' : comp.last_count > 0 ? 'text-green-600' : 'text-gray-400'"
+                      x-text="comp.last_count"></span>
+                <span x-show="comp.last_count === null || comp.last_count === undefined" class="text-gray-300">—</span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span x-show="comp.checking" class="animate-spin inline-block">⏳</span>
+                <span x-show="!comp.checking && comp.last_count > 100" class="text-orange-500 text-xs">🟠 много</span>
+                <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 100 && comp.last_count > 10" class="text-green-500 text-xs">🟢 ок</span>
+                <span x-show="!comp.checking && comp.last_count !== null && comp.last_count <= 10 && comp.last_count > 0" class="text-blue-500 text-xs">🔵 мало</span>
+                <span x-show="!comp.checking && comp.last_count === 0" class="text-gray-400 text-xs">⚪ пусто</span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <button @click="checkOne(comp._idx)" :disabled="comp.checking" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 disabled:opacity-50">🔍</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+function autosearchApp() {
+  const key = new URLSearchParams(window.location.search).get('key') || '';
+  return {
+    key,
+    companies: [],
+    checking: false,
+    checkProgress: 0,
+    scoredCount: '—',
+    relevantCount: 0,
+    search: '',
+
+    get totalResumes() {
+      return this.companies.reduce((s, c) => s + (c.last_count || 0), 0);
+    },
+
+    get filteredCompanies() {
+      const q = this.search.toLowerCase();
+      return this.companies
+        .map((c, i) => ({...c, _idx: i}))
+        .filter(c => !q || c.name.toLowerCase().includes(q));
+    },
+
+    async init() {
+      await this.loadCompanies();
+      await this.loadStats();
+    },
+
+    async loadCompanies() {
+      const r = await fetch(`/api/autosearch/companies?key=${this.key}`);
+      if (r.ok) this.companies = await r.json();
+    },
+
+    async loadStats() {
+      try {
+        const r = await fetch(`/api/autosearch/stats?key=${this.key}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.scoredCount = d.scored || '—';
+          this.relevantCount = d.relevant || 0;
+        }
+      } catch(e) {}
+    },
+
+    async saveCompanies() {
+      await fetch(`/api/autosearch/companies?key=${this.key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.companies)
+      });
+    },
+
+    async toggleOne(idx) {
+      try {
+        const r = await fetch(`/api/autosearch/toggle?key=${this.key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({idx})
+        });
+        if (r.ok) {
+          const d = await r.json();
+          this.companies[idx].enabled = d.enabled;
+        }
+      } catch(e) {}
+    },
+
+    async checkOne(idx) {
+      this.companies[idx].checking = true;
+      try {
+        const r = await fetch(`/api/autosearch/check?key=${this.key}&idx=${idx}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.companies[idx].last_count = d.count;
+        }
+      } catch(e) {}
+      this.companies[idx].checking = false;
+    },
+
+    async checkAllCounts() {
+      this.checking = true;
+      this.checkProgress = 0;
+      for (let i = 0; i < this.companies.length; i++) {
+        if (!this.companies[i].enabled) continue;
+        await this.checkOne(i);
+        this.checkProgress++;
+        await new Promise(r => setTimeout(r, 300));
+      }
+      this.checking = false;
+    },
+
+    toggleAll() {
+      const allEnabled = this.companies.every(c => c.enabled);
+      this.companies.forEach(c => c.enabled = !allEnabled);
+      this.saveCompanies();
+    },
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!-- Unified Navigation — HR Radar -->
+{% set path = request.url.path %}
+{% set nav_key = key|default('') %}
+<nav class="bg-white shadow-sm border-b sticky top-0 z-50"
+     x-data="{ mobile: false, autoDD: false, otborDD: false }"
+     @keydown.escape="autoDD=false; otborDD=false; mobile=false">
+  <div class="max-w-7xl mx-auto px-4">
+    <div class="flex items-center justify-between h-14">
+      <!-- Logo -->
+      <a href="/?key={{ nav_key }}" class="text-lg font-bold text-gray-800 flex-shrink-0">🎯 HR Radar</a>
+
+      <!-- Desktop nav -->
+      <div class="hidden md:flex items-center gap-0.5 text-sm">
+        <!-- Дашборд -->
+        <a href="/?key={{ nav_key }}"
+           class="px-3 py-2 rounded-lg transition-colors {% if path == '/' and not request.query_params.get('tab') %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+          📊 Дашборд
+        </a>
+
+        <!-- Автопоиски dropdown -->
+        <div class="relative" @mouseenter="autoDD=true" @mouseleave="autoDD=false">
+          <button @click="autoDD=!autoDD"
+                  class="px-3 py-2 rounded-lg transition-colors flex items-center gap-1 {% if path in ['/autosearch', '/autosearch/btl', '/outsource'] %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+            🔍 Автопоиски
+            <svg class="w-3.5 h-3.5 transition-transform" :class="autoDD && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div x-show="autoDD" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+               x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+               class="absolute left-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 z-50">
+            <a href="/autosearch?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/autosearch' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+              🎪 Event агентства
+            </a>
+            <a href="/autosearch/btl?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/autosearch/btl' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+              📦 BTL агентства
+            </a>
+            <a href="/outsource?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/outsource' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+              🏢 Аутсорсинг
+            </a>
+          </div>
+        </div>
+
+        <!-- Отбор dropdown -->
+        <div class="relative" @mouseenter="otborDD=true" @mouseleave="otborDD=false">
+          <button @click="otborDD=!otborDD"
+                  class="px-3 py-2 rounded-lg transition-colors flex items-center gap-1 {% if path == '/' and request.query_params.get('tab') == 'screening' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+            📋 Отбор
+            <svg class="w-3.5 h-3.5 transition-transform" :class="otborDD && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div x-show="otborDD" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+               x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+               class="absolute left-0 mt-1 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 z-50">
+            <a href="/?key={{ nav_key }}&tab=screening&profile=event_agencies" class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+              🎪 Event агентства
+            </a>
+            <a href="/?key={{ nav_key }}&tab=screening&profile=btl_agencies" class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+              📦 BTL агентства
+            </a>
+            <a href="/?key={{ nav_key }}&tab=screening&profile=outsource_agencies" class="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+              🏢 Аутсорсинг
+            </a>
+          </div>
+        </div>
+
+        <!-- Интервью -->
+        <a href="/interview?key={{ nav_key }}"
+           class="px-3 py-2 rounded-lg transition-colors {% if path == '/interview' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+          🎤 Интервью
+        </a>
+
+        <!-- Настройки -->
+        <a href="/?key={{ nav_key }}&tab=settings"
+           class="px-3 py-2 rounded-lg transition-colors {% if path == '/' and request.query_params.get('tab') == 'settings' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+          ⚙️ Настройки
+        </a>
+      </div>
+
+      <!-- Mobile hamburger -->
+      <button @click="mobile=!mobile" class="md:hidden p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors">
+        <svg x-show="!mobile" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg x-show="mobile" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Mobile menu -->
+    <div x-show="mobile" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-100" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-2"
+         class="md:hidden pb-3 border-t border-gray-100 pt-2 space-y-1">
+
+      <a href="/?key={{ nav_key }}" class="block px-3 py-2 rounded-lg text-sm {% if path == '/' and not request.query_params.get('tab') %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        📊 Дашборд
+      </a>
+
+      <!-- Автопоиски (mobile) -->
+      <div class="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">🔍 Автопоиски</div>
+      <a href="/autosearch?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/autosearch' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        🎪 Event агентства
+      </a>
+      <a href="/autosearch/btl?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/autosearch/btl' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        📦 BTL агентства
+      </a>
+      <a href="/outsource?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/outsource' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        🏢 Аутсорсинг
+      </a>
+
+      <!-- Отбор (mobile) -->
+      <div class="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">📋 Отбор</div>
+      <a href="/?key={{ nav_key }}&tab=screening&profile=event_agencies" class="block px-6 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
+        🎪 Event агентства
+      </a>
+      <a href="/?key={{ nav_key }}&tab=screening&profile=btl_agencies" class="block px-6 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
+        📦 BTL агентства
+      </a>
+      <a href="/?key={{ nav_key }}&tab=screening&profile=outsource_agencies" class="block px-6 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
+        🏢 Аутсорсинг
+      </a>
+
+      <a href="/interview?key={{ nav_key }}" class="block px-3 py-2 rounded-lg text-sm {% if path == '/interview' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        🎤 Интервью
+      </a>
+
+      <a href="/?key={{ nav_key }}&tab=settings" class="block px-3 py-2 rounded-lg text-sm {% if path == '/' and request.query_params.get('tab') == 'settings' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        ⚙️ Настройки
+      </a>
+    </div>
+  </div>
+</nav>

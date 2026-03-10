@@ -2,11 +2,14 @@ profiles:
   event_agencies:
     name: "Event агентства"
     description: "Поиск кандидатов для event-агентств"
-    imap:
-      host: "imap.yandex.ru"
-      port: 993
-      user: "hr11@btl-agency.ru"
-      pass_env: "IMAP_PASS"
+    source: "hh_api"
+    hh_companies_file: "event_companies.json"
+    # IMAP config (legacy, switched to HH API 2026-03-10):
+    # imap:
+    #   host: "imap.yandex.ru"
+    #   port: 993
+    #   user: "hr11@btl-agency.ru"
+    #   pass_env: "IMAP_PASS"
     telegram:
       bot_token_env: "TELEGRAM_BOT_TOKEN"
       chat_id_env: "TELEGRAM_CHAT_ID"

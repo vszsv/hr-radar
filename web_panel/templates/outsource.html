@@ -9,19 +9,15 @@
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="outsourceApp()">
 
-  <!-- Nav -->
-  <nav class="bg-white shadow-sm border-b">
+  {% include 'nav.html' %}
+
+  <!-- Page header -->
+  <div class="bg-white border-b">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-4">
-        <h1 class="text-lg font-bold text-gray-800">🏢 HR Radar — Аутсорсинг</h1>
-        <a :href="'/?key='+key" class="text-sm text-blue-600 hover:underline">📊 Дашборд</a>
-        <a :href="'/interview?key='+key" class="text-sm text-blue-600 hover:underline">🎥 Интервью</a>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-gray-400" x-text="companies.filter(c=>c.enabled).length + '/' + companies.length + ' вкл.'"></span>
-      </div>
+      <h2 class="text-base font-semibold text-gray-700">🏢 Автопоиски — Аутсорсинг</h2>
+      <span class="text-xs text-gray-400" x-text="companies.filter(c=>c.enabled).length + '/' + companies.length + ' вкл.'"></span>
     </div>
-  </nav>
+  </div>
 
   <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
 

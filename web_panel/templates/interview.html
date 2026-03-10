@@ -10,14 +10,14 @@
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="interviewApp()" x-init="init()">
 
-<header class="bg-white shadow-sm sticky top-0 z-50">
-  <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <a :href="'/?key=' + key" class="text-gray-400 hover:text-gray-600 text-sm">← HR Radar</a>
-      <h1 class="text-lg font-bold text-gray-800">🎥 Анализ интервью</h1>
-    </div>
+{% include 'nav.html' %}
+
+<!-- Page header -->
+<div class="bg-white border-b">
+  <div class="max-w-4xl mx-auto px-4 py-3">
+    <h2 class="text-base font-semibold text-gray-700">🎤 Анализ интервью</h2>
   </div>
-</header>
+</div>
 
 <main class="max-w-4xl mx-auto px-4 py-6">
 
