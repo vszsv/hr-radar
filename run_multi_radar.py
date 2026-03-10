@@ -927,7 +927,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         
         if fw_vacancy_id and deep_results:
             imported, dupes, errors = run_autoflow_fw_import(
-                deep_results, int(fw_vacancy_id), af, t_approve, t_reject, openai_config.get("model", "gpt-4o")
+                deep_results, int(fw_vacancy_id), af, t_approve, t_reject, panel_config.get("default_model", openai_config.get("model", "gpt-5.2"))
             )
             print(f"  ⚡ FW import: {imported} new, {dupes} dupes, {errors} errors")
             

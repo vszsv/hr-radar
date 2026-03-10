@@ -46,13 +46,11 @@ AM — это **исполнитель клиентского сервиса**, 
 Ace Target, Action (Экшн, ПРП), ACTIVE8, APM, ARS MAGNA, b2all, Beetl, BM agency, Bounty, Brands Division, BrainPromo, BTL FAMILY, BTL МЫ, CLEVER marketing, CREON, Citrus, DIY SERVICE, DPG, Free Mind, Gradus, Хорошие Люди, ICE, ICON, ImpacTo, InBrief, Index, INTENSIVE (Интенсив), IVS GROUP, КБ-12, LIKES GROUP, Markway, Master In, Motive, Orange, Progression (Progression Group), PromoGroup, PromoSpace, R&I, RED AGENCY, Redline, Revolution, SCG, TMA-DRAFT, TR-Project, TRIKO, Траст Групп БТЛ, TVIN (ТВИН), VNV, АТМС, LBL, КРОС, Р.И.М., MARCON, МОСКВИЧИ, Хаостика, BOOST TEAM, BTL'STUDY, Эврико, Маркетинговое Агентство 51, Diversity, emg (E:MG)
 
 #### Что НЕ является BTL-агентством:
-- **Чисто digital-агентства** — performance, SMM, SEO, programmatic (без офлайн-компонента)
+- **Event/MICE-агентства** (Eventum Premo, N:OW, REDDAY, Worlds) — это event, не BTL
+- **Digital-агентства** — performance, SMM, SEO, programmatic
 - **PR-агентства** — медиарилейшнз, GR, кризисные коммуникации
 - **Медийные агентства** — media buying, OOH, indoor
 - **Продакшн-компании** — видео, фото, контент
-
-#### ⚠️ Event + BTL = подходит!
-Многие агентства совмещают BTL и event (emg, Beetl, DPG, IVSGroup, TMA DRAFT, Motive и др.). Кандидат из такого агентства с опытом клиентского сервиса — ПОДХОДИТ. Не отсекай только потому что в названии или описании есть слово "event". Ключевой вопрос: работал ли с клиентами в агентстве? Если да — релевантен.
 
 ⚠️ **Hype, DT Group** и подобные неизвестные — проверяй по обязанностям.
 
@@ -115,7 +113,7 @@ BTL-маркеры в обязанностях (плюс, но НЕ обязат
 - Регионы — минус
 
 ## Красные флаги (оценка ≤ 3)
-- **Агентство чисто digital/PR/медийного профиля** (без BTL/event-компонента) — макс 4 балла
+- **Агентство НЕ BTL-профиля** (event, digital, PR, медийное) — макс 4 балла
 - Account Director / CSD — overqualified
 - Team Lead — digital-позиция
 - KAM (Key Account Manager) — клиентская сторона, работа с сетями
