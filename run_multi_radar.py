@@ -948,9 +948,9 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                         "status": r.get("fw_status", ""),
                         "reason": r.get("reason", "")[:150],
                     }
-                if r.get("fw_link"):
-                    entry["fw_link"] = r["fw_link"]
-                candidates_detail.append(entry)
+                    if r.get("fw_link"):
+                        entry["fw_link"] = r["fw_link"]
+                    candidates_detail.append(entry)
                 candidates_detail.sort(key=lambda x: x.get("score", 0), reverse=True)
 
                 last_run = {
@@ -1173,7 +1173,7 @@ def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
             
             # Save FW candidate ID back to result for panel display
             if cid:
-                r["fw_link"] = f"https://app.friend.work/candidates/{cid}"
+                r["fw_link"] = f"https://app.friend.work/Candidate/Profile/{cid}"
 
             if res.get("ok"):
                 imported += 1

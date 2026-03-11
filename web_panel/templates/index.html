@@ -58,48 +58,6 @@
 <!-- ═══ SCREENING ═══ -->
 <div x-show="tab==='screening'" x-cloak>
 
-  <!-- ═══ AUTOFLOW RESULTS ═══ -->
-  <div class="bg-white rounded-xl shadow-sm p-4 mb-6" x-show="afRuns.length > 0">
-    <h2 class="text-lg font-bold text-gray-800 mb-3">📊 Результаты автоотбора</h2>
-    <template x-for="run in afRuns" :key="run.profile + run.job">
-      <div class="mb-4 border border-gray-200 rounded-lg overflow-hidden">
-        <!-- Run header -->
-        <div class="px-3 py-2 bg-gray-50 flex flex-wrap items-center gap-2 text-sm cursor-pointer"
-             @click="run._open = !run._open">
-          <span class="font-semibold text-gray-700" x-text="afLabel(run.profile)"></span>
-          <span class="text-gray-400">→</span>
-          <span class="font-medium" x-text="afJobLabel(run.job)"></span>
-          <span class="text-xs text-gray-400 ml-auto" x-text="'📅 ' + run.date"></span>
-          <span class="text-xs text-green-600" x-text="'✅' + run.approved"></span>
-          <span class="text-xs text-yellow-600" x-text="'👁' + run.reviewed"></span>
-          <span class="text-xs text-red-500" x-text="'❌' + run.rejected"></span>
-          <span class="text-xs text-purple-600" x-text="'📤' + run.imported"></span>
-          <svg class="w-4 h-4 text-gray-400 transition-transform" :class="run._open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-        </div>
-        <!-- Candidates list -->
-        <div x-show="run._open" x-transition class="divide-y divide-gray-100">
-          <template x-for="c in (run.candidates || [])" :key="c.link">
-            <div class="px-3 py-2 flex items-start gap-2 text-sm hover:bg-gray-50">
-              <span class="flex-shrink-0 w-8 text-center font-bold rounded"
-                :class="c.score >= 7 ? 'text-green-700 bg-green-100' : c.score >= 4 ? 'text-yellow-700 bg-yellow-100' : 'text-red-700 bg-red-100'"
-                x-text="c.score + '/10'"></span>
-              <div class="flex-1 min-w-0">
-                <a :href="c.fw_link || c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block" x-text="c.name"></a>
-                <div class="text-xs text-gray-500 line-clamp-2" x-text="c.reason"></div>
-              </div>
-              <span class="flex-shrink-0 text-xs px-2 py-0.5 rounded-full"
-                :class="c.status === 'Одобрен ИИ' ? 'bg-green-100 text-green-700' : c.status === 'Просмотрен ИИ' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'"
-                x-text="c.status"></span>
-            </div>
-          </template>
-          <div x-show="!run.candidates || run.candidates.length === 0" class="px-3 py-2 text-xs text-gray-400">
-            Детали кандидатов пока не сохранены (будут после следующего прогона)
-          </div>
-        </div>
-      </div>
-    </template>
-  </div>
-
   <template x-for="p in profiles" :key="p.id">
     <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
       <!-- Profile header -->
@@ -228,6 +186,37 @@
                     <span class="text-red-600">❌ <span x-text="j.autoflow.last_run.rejected || 0"></span> отказ</span>
                     <span class="text-purple-600">📤 <span x-text="j.autoflow.last_run.imported || 0"></span> в FW</span>
                     <span class="text-gray-400">🔄 <span x-text="j.autoflow.last_run.dupes || 0"></span> дубл.</span>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Autoflow candidates (inline, after направляющая) -->
+              <template x-if="getAfRun(p.id, j.slug)?.candidates?.length > 0">
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                  <div class="px-3 py-2 bg-gray-50 flex flex-wrap items-center gap-2 text-sm cursor-pointer"
+                       @click="getAfRun(p.id, j.slug)._open = !getAfRun(p.id, j.slug)._open">
+                    <span class="font-semibold text-gray-700 text-xs">📊 Результаты автоотбора</span>
+                    <span class="text-xs text-gray-400 ml-auto" x-text="'📅 ' + getAfRun(p.id, j.slug).date"></span>
+                    <span class="text-xs text-green-600" x-text="'✅' + getAfRun(p.id, j.slug).approved"></span>
+                    <span class="text-xs text-yellow-600" x-text="'👁' + getAfRun(p.id, j.slug).reviewed"></span>
+                    <span class="text-xs text-red-500" x-text="'❌' + getAfRun(p.id, j.slug).rejected"></span>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="getAfRun(p.id, j.slug)._open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </div>
+                  <div x-show="getAfRun(p.id, j.slug)._open" x-transition class="divide-y divide-gray-100">
+                    <template x-for="c in (getAfRun(p.id, j.slug).candidates || [])" :key="c.link">
+                      <div class="px-3 py-2 flex items-start gap-2 text-sm hover:bg-gray-50">
+                        <span class="flex-shrink-0 w-8 text-center font-bold rounded text-xs"
+                          :class="c.score >= 7 ? 'text-green-700 bg-green-100' : c.score >= 4 ? 'text-yellow-700 bg-yellow-100' : 'text-red-700 bg-red-100'"
+                          x-text="c.score + '/10'"></span>
+                        <div class="flex-1 min-w-0">
+                          <a :href="c.fw_link || c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block text-xs" x-text="c.name"></a>
+                          <div class="text-[10px] text-gray-500 line-clamp-2" x-text="c.reason"></div>
+                        </div>
+                        <span class="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full"
+                          :class="c.status === 'Одобрен ИИ' ? 'bg-green-100 text-green-700' : c.status === 'Просмотрен ИИ' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'"
+                          x-text="c.status"></span>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </template>
@@ -580,6 +569,7 @@ function panel() {
     hhChecking: false,
     afLabel(p) { return {event_agencies:'🎪 Event',btl_agencies:'📦 BTL',outsource_agencies:'🏢 Аутсорсинг'}[p]||p; },
     afJobLabel(j) { return {account_director:'Account Director',account_manager:'Account Manager',project_manager:'Project Manager',new_business:'New Business',outsource_manager:'Руководитель'}[j]||j; },
+    getAfRun(pid, slug) { return this.afRuns.find(r => r.profile === pid && r.job === slug) || null; },
     J(pid, slug) { const k=pid+'.'+slug; if(!this._jobs[k]) this._jobs[k]={open:false}; return this._jobs[k]; },
     S(pid, slug) { const k=pid+'.'+slug; if(!this._primary[k]) this._primary[k]={cands:null,loading:false,open:false,dates:[],currentDate:''}; return this._primary[k]; },
     D(pid, slug) { const k=pid+'.'+slug; if(!this._deep[k]) this._deep[k]={results:null,running:false,prog:'',filter:'all',importing:false,importRes:null,importSummary:''}; return this._deep[k]; },

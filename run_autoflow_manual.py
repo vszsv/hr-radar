@@ -93,11 +93,54 @@ for profile_name in ['event_agencies', 'btl_agencies']:
             )
             print(f"  📱 Report sent!")
             
+            candidates_detail = []
+            for r in deep_results:
+                entry = {
+                    "name": r.get("candidateName", ""),
+                    "link": r.get("link", ""),
+                    "score": r.get("score", 0),
+                    "status": r.get("fw_status", ""),
+                    "reason": r.get("reason", "")[:150],
+                }
+                if r.get("fw_link"):
+                    entry["fw_link"] = r["fw_link"]
+                candidates_detail.append(entry)
+            candidates_detail.sort(key=lambda x: x.get("score", 0), reverse=True)
+
             af["last_run"] = {
                 "date": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M"),
                 "primary": len(links), "approved": approved_count,
                 "reviewed": reviewed_count, "rejected": rejected_count,
                 "imported": imported, "dupes": dupes, "errors": errors,
+                "candidates": candidates_detail,
+            }
+            controls["profiles"][profile_name].setdefault("autoflow", {})[job.slug] = af
+            (BASE / "data" / "radar_controls.json").write_text(
+                json.dumps(controls, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        elif not fw_vacancy_id and deep_results:
+            print(f"  ⚠️ No FW vacancy for {route_key}")
+            # Still save candidates for panel display
+            candidates_detail = []
+            for r in deep_results:
+                entry = {
+                    "name": r.get("candidateName", ""),
+                    "link": r.get("link", ""),
+                    "score": r.get("score", 0),
+                    "status": r.get("fw_status", ""),
+                    "reason": r.get("reason", "")[:150],
+                }
+                candidates_detail.append(entry)
+            candidates_detail.sort(key=lambda x: x.get("score", 0), reverse=True)
+            approved_count = len([r for r in deep_results if r.get("score", 0) >= t_approve])
+            reviewed_count = len([r for r in deep_results if t_reject <= r.get("score", 0) < t_approve])
+            rejected_count = len([r for r in deep_results if 0 < r.get("score", 0) < t_reject])
+            af["last_run"] = {
+                "date": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M"),
+                "primary": len(links), "approved": approved_count,
+                "reviewed": reviewed_count, "rejected": rejected_count,
+                "imported": 0, "dupes": 0, "errors": 0,
+                "candidates": candidates_detail,
             }
             controls["profiles"][profile_name].setdefault("autoflow", {})[job.slug] = af
             (BASE / "data" / "radar_controls.json").write_text(
