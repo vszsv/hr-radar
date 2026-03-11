@@ -20,6 +20,7 @@
 
   <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
+    <!-- Stats bar -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="bg-white rounded-xl shadow-sm p-4 text-center">
         <div class="text-2xl font-bold text-blue-600" x-text="companies.length">0</div>
@@ -39,6 +40,7 @@
       </div>
     </div>
 
+    <!-- Actions -->
     <div class="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3">
       <button @click="checkAllCounts()" :disabled="checking" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
         <span x-show="!checking">🔍 Проверить все</span>
@@ -48,6 +50,9 @@
         <span x-show="!running">🚀 Запустить поиск + скоринг</span>
         <span x-show="running">⏳ Идёт поиск...</span>
       </button>
+      <button @click="showAddForm = !showAddForm" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+        ➕ Добавить компанию
+      </button>
       <button @click="toggleAll()" class="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors">
         ⚡ Вкл/выкл все
       </button>
@@ -56,6 +61,20 @@
       </div>
     </div>
 
+    <!-- Add company form -->
+    <div x-show="showAddForm" x-transition class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <h3 class="font-semibold text-gray-700">Добавить компанию</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <input x-model="newCompany.name" placeholder="Название" class="border rounded-lg px-3 py-2 text-sm">
+        <input x-model="newCompany.hh_key" placeholder='HH-ключ (WORKPLACE_ORGANIZATION:"Название")' class="border rounded-lg px-3 py-2 text-sm">
+      </div>
+      <div class="flex gap-2">
+        <button @click="addCompany()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Добавить</button>
+        <button @click="showAddForm=false" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Отмена</button>
+      </div>
+    </div>
+
+    <!-- Search progress -->
     <div x-show="running" class="bg-blue-50 rounded-xl p-4">
       <div class="flex items-center gap-2 mb-2">
         <div class="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
@@ -67,6 +86,7 @@
       <div class="mt-2 text-xs text-blue-600 max-h-32 overflow-y-auto" x-html="runLog"></div>
     </div>
 
+    <!-- Companies table -->
     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 text-gray-600 text-xs uppercase">
@@ -111,6 +131,8 @@
               <td class="px-3 py-2 text-center" @click.stop>
                 <div class="flex gap-1 justify-center">
                   <button @click="checkOne(comp._idx)" :disabled="comp.checking" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs hover:bg-blue-100 disabled:opacity-50">🔍</button>
+                  <button @click="editCompany(comp._idx)" class="px-2 py-1 bg-gray-50 text-gray-600 rounded text-xs hover:bg-gray-100">✏️</button>
+                  <button @click="removeCompany(comp._idx)" class="px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100">🗑️</button>
                 </div>
               </td>
             </tr>
@@ -129,6 +151,7 @@
       </table>
     </div>
 
+    <!-- Preview modal -->
     <div x-show="previewIdx !== null" x-transition class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="previewIdx=null">
       <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
@@ -139,9 +162,14 @@
           <div class="animate-spin inline-block h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full mb-2"></div>
           <div>Загрузка...</div>
         </div>
-        <div x-show="!previewLoading && previewItems.length === 0" class="text-center py-8 text-gray-400">Нет обновлённых резюме за последние 24 часа</div>
+        <div x-show="!previewLoading && previewItems.length === 0" class="text-center py-8 text-gray-400">
+          Нет обновлённых резюме за последние 24 часа
+        </div>
         <div x-show="!previewLoading && previewItems.length > 0" class="space-y-3">
-          <div class="text-xs text-gray-400 mb-2" x-text="'Найдено за 24ч: ' + previewTotal"></div>
+          <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+            <span x-text="'Найдено за 24ч: ' + previewTotal"></span>
+            <span x-text="'Стр. ' + (previewPage+1) + ' из ' + previewPages"></span>
+          </div>
           <template x-for="item in previewItems" :key="item.url">
             <a :href="item.url" target="_blank" class="block p-3 rounded-lg border hover:border-blue-300 hover:bg-blue-50/50 transition-colors">
               <div class="font-medium text-gray-800" x-text="item.title"></div>
@@ -152,7 +180,32 @@
               </div>
             </a>
           </template>
+          <!-- Pagination -->
+          <div x-show="previewPages > 1" class="flex items-center justify-center gap-2 pt-2">
+            <button @click="previewCompany(previewIdx, previewPage - 1)" :disabled="previewPage <= 0"
+              class="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 disabled:opacity-30">← Назад</button>
+            <span class="text-xs text-gray-500" x-text="(previewPage+1) + ' / ' + previewPages"></span>
+            <button @click="previewCompany(previewIdx, previewPage + 1)" :disabled="previewPage >= previewPages - 1"
+              class="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 disabled:opacity-30">Вперёд →</button>
+          </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Edit modal -->
+    <div x-show="editIdx !== null" x-transition class="fixed inset-0 bg-black/30 flex items-center justify-center z-50" @click.self="editIdx=null">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-3">
+        <h3 class="font-semibold text-gray-700">Редактировать компанию</h3>
+        <template x-if="editIdx !== null">
+          <div class="space-y-3">
+            <input x-model="companies[editIdx].name" placeholder="Название" class="border rounded-lg px-3 py-2 text-sm w-full">
+            <textarea x-model="companies[editIdx].hh_key" placeholder="HH-ключ" class="border rounded-lg px-3 py-2 text-sm w-full h-24 font-mono text-xs"></textarea>
+            <div class="flex gap-2">
+              <button @click="saveCompanies(); editIdx=null" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Сохранить</button>
+              <button @click="editIdx=null" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium">Отмена</button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -161,57 +214,189 @@
 function btlAutosearchApp() {
   const key = new URLSearchParams(window.location.search).get('key') || '';
   return {
-    key, companies: [], checking: false, checkProgress: 0,
-    running: false, runStatus: '', runProgress: 0, runLog: '',
-    previewIdx: null, previewItems: [], previewTotal: 0, previewLoading: false,
-    scoredCount: '—', search: '',
+    key,
+    companies: [],
+    checking: false,
+    checkProgress: 0,
+    running: false,
+    runStatus: '',
+    runProgress: 0,
+    runLog: '',
+    showAddForm: false,
+    editIdx: null,
+    previewIdx: null,
+    previewItems: [],
+    previewTotal: 0,
+    previewLoading: false,
+    previewPage: 0,
+    previewPages: 0,
+    scoredCount: '—',
+    search: '',
+    newCompany: { name: '', hh_key: '' },
 
-    get totalResumes() { return this.companies.reduce((s,c)=>s+(c.last_count||0),0); },
+    get totalResumes() {
+      return this.companies.reduce((s, c) => s + (c.last_count || 0), 0);
+    },
+
     get filteredCompanies() {
       const q = this.search.toLowerCase();
-      return this.companies.map((c,i)=>({...c,_idx:i})).filter(c => !q || c.name.toLowerCase().includes(q));
+      return this.companies
+        .map((c, i) => ({...c, _idx: i}))
+        .filter(c => !q || c.name.toLowerCase().includes(q));
     },
 
-    async init() { await this.loadCompanies(); await this.loadStats(); },
-    async loadCompanies() { const r=await fetch(`/api/autosearch/btl/companies?key=${this.key}`); if(r.ok) this.companies=await r.json(); },
-    async loadStats() { const r=await fetch(`/api/autosearch/btl/stats?key=${this.key}`); if(r.ok){ const d=await r.json(); this.scoredCount=d.scored||'—'; } },
+    async init() {
+      await this.loadCompanies();
+      await this.loadStats();
+    },
+
+    async loadCompanies() {
+      const r = await fetch(`/api/autosearch/btl/companies?key=${this.key}`);
+      if (r.ok) this.companies = await r.json();
+    },
+
+    async loadStats() {
+      try {
+        const r = await fetch(`/api/autosearch/btl/stats?key=${this.key}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.scoredCount = d.scored || '—';
+        }
+      } catch(e) {}
+    },
+
+    async saveCompanies() {
+      await fetch(`/api/autosearch/btl/companies?key=${this.key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.companies)
+      });
+    },
 
     async toggleOne(idx) {
-      const r=await fetch(`/api/autosearch/btl/toggle?key=${this.key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx})});
-      if(r.ok){ const d=await r.json(); this.companies[idx].enabled=d.enabled; }
+      try {
+        const r = await fetch(`/api/autosearch/btl/toggle?key=${this.key}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({idx})
+        });
+        if (r.ok) {
+          const d = await r.json();
+          this.companies[idx].enabled = d.enabled;
+        }
+      } catch(e) {}
     },
+
+    async previewCompany(idx, page = 0) {
+      this.previewIdx = idx;
+      this.previewLoading = true;
+      if (page === 0) { this.previewItems = []; this.previewTotal = 0; }
+      try {
+        const r = await fetch(`/api/autosearch/btl/preview?key=${this.key}&idx=${idx}&page=${page}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.previewItems = d.items || [];
+          this.previewTotal = d.total_24h || 0;
+          this.previewPage = d.page || 0;
+          this.previewPages = d.pages || 1;
+        }
+      } catch(e) {}
+      this.previewLoading = false;
+    },
+
     async checkOne(idx) {
-      this.companies[idx].checking=true;
-      const r=await fetch(`/api/autosearch/btl/check?key=${this.key}&idx=${idx}`);
-      if(r.ok){ const d=await r.json(); this.companies[idx].last_count=d.count; this.companies[idx].count_24h=d.count_24h; }
-      this.companies[idx].checking=false;
-    },
-    async checkAllCounts(){
-      this.checking=true; this.checkProgress=0;
-      for(let i=0;i<this.companies.length;i++){ if(!this.companies[i].enabled) continue; await this.checkOne(i); this.checkProgress++; await new Promise(r=>setTimeout(r,150)); }
-      this.checking=false;
-    },
-    toggleAll(){ const all=this.companies.every(c=>c.enabled); this.companies.forEach(c=>c.enabled=!all); fetch(`/api/autosearch/btl/companies?key=${this.key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.companies)}); },
-
-    async previewCompany(idx){
-      this.previewIdx=idx; this.previewLoading=true; this.previewItems=[]; this.previewTotal=0;
-      const r=await fetch(`/api/autosearch/btl/preview?key=${this.key}&idx=${idx}`);
-      if(r.ok){ const d=await r.json(); this.previewItems=d.items||[]; this.previewTotal=d.total_24h||0; }
-      this.previewLoading=false;
+      this.companies[idx].checking = true;
+      try {
+        const r = await fetch(`/api/autosearch/btl/check?key=${this.key}&idx=${idx}`);
+        if (r.ok) {
+          const d = await r.json();
+          this.companies[idx].last_count = d.count;
+          this.companies[idx].count_24h = d.count_24h;
+        }
+      } catch(e) {}
+      this.companies[idx].checking = false;
     },
 
-    async runSearch(){
-      if(!confirm('Запустить поиск и скоринг по BTL?')) return;
-      this.running=true; this.runStatus='Запуск...'; this.runProgress=0; this.runLog='';
-      const r=await fetch(`/api/autosearch/btl/run?key=${this.key}`,{method:'POST'});
-      const data=await r.json();
-      const es=new EventSource(`/api/autosearch/btl/run/${data.task_id}/stream?key=${this.key}`);
-      es.onmessage=(e)=>{ const d=JSON.parse(e.data);
-        if(d.stage==='progress'){ this.runStatus=d.message||'Идёт...'; this.runProgress=d.progress||0; this.runLog += `<div>${d.message}</div>`; }
-        else if(d.stage==='done'){ this.runStatus='Готово!'; this.runProgress=100; this.running=false; this.loadStats(); es.close(); }
-        else if(d.stage==='error'){ this.runStatus='Ошибка: '+d.message; this.running=false; es.close(); }
-      };
-      es.onerror=()=>{ this.running=false; es.close(); };
+    async checkAllCounts() {
+      this.checking = true;
+      this.checkProgress = 0;
+      for (let i = 0; i < this.companies.length; i++) {
+        if (!this.companies[i].enabled) continue;
+        await this.checkOne(i);
+        this.checkProgress++;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      this.checking = false;
+      await this.saveCompanies();
+    },
+
+    async addCompany() {
+      if (!this.newCompany.name || !this.newCompany.hh_key) return;
+      this.companies.push({
+        ...this.newCompany,
+        enabled: true,
+        last_count: null,
+      });
+      await this.saveCompanies();
+      this.newCompany = { name: '', hh_key: '' };
+      this.showAddForm = false;
+    },
+
+    editCompany(idx) {
+      this.editIdx = idx;
+    },
+
+    async removeCompany(idx) {
+      if (!confirm(`Удалить ${this.companies[idx].name}?`)) return;
+      this.companies.splice(idx, 1);
+      await this.saveCompanies();
+    },
+
+    toggleAll() {
+      const allEnabled = this.companies.every(c => c.enabled);
+      this.companies.forEach(c => c.enabled = !allEnabled);
+      this.saveCompanies();
+    },
+
+    async runSearch() {
+      if (!confirm('Запустить поиск и скоринг по BTL?')) return;
+      this.running = true;
+      this.runStatus = 'Запуск...';
+      this.runProgress = 0;
+      this.runLog = '';
+      try {
+        const r = await fetch(`/api/autosearch/btl/run?key=${this.key}`, { method: 'POST' });
+        const data = await r.json();
+        if (data.error) {
+          this.runStatus = 'Ошибка: ' + data.error;
+          this.running = false;
+          return;
+        }
+        const taskId = data.task_id;
+        const es = new EventSource(`/api/autosearch/btl/run/${taskId}/stream?key=${this.key}`);
+        es.onmessage = (e) => {
+          const d = JSON.parse(e.data);
+          if (d.stage === 'progress') {
+            this.runStatus = d.message || 'Идёт...';
+            this.runProgress = d.progress || 0;
+            this.runLog += `<div>${d.message}</div>`;
+          } else if (d.stage === 'done') {
+            this.runStatus = 'Готово!';
+            this.runProgress = 100;
+            this.running = false;
+            this.loadStats();
+            es.close();
+          } else if (d.stage === 'error') {
+            this.runStatus = 'Ошибка: ' + d.message;
+            this.running = false;
+            es.close();
+          }
+        };
+        es.onerror = () => { this.running = false; es.close(); };
+      } catch(e) {
+        this.runStatus = 'Ошибка запуска: ' + e;
+        this.running = false;
+      }
     },
   };
 }

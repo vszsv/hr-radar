@@ -2100,8 +2100,8 @@ async def api_autosearch_check(idx: int = Query(0), key: str = Query("")):
 
 
 @app.get("/api/autosearch/preview")
-async def api_autosearch_preview(idx: int = Query(0), key: str = Query("")):
-    """Get preview of top 5 resumes for a company."""
+async def api_autosearch_preview(idx: int = Query(0), page: int = Query(0), key: str = Query("")):
+    """Get preview of resumes for a company (paginated, 20 per page)."""
     check_key(key)
     companies = _load_event_companies()
     if idx < 0 or idx >= len(companies):
@@ -2109,7 +2109,7 @@ async def api_autosearch_preview(idx: int = Query(0), key: str = Query("")):
     comp = companies[idx]
     hh_key = comp.get("hh_key", "")
     if not hh_key:
-        return {"items": []}
+        return {"items": [], "total_24h": 0, "page": 0, "pages": 0}
 
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -2119,7 +2119,7 @@ async def api_autosearch_preview(idx: int = Query(0), key: str = Query("")):
         from datetime import datetime, timedelta, timezone
         date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
         r = hh_request("GET", "/resumes", params={
-            "text": hh_key, "per_page": "5", "area": "113",
+            "text": hh_key, "per_page": "20", "page": str(page), "area": "113",
             "date_from": date_from, "order_by": "publication_time"
         })
         data = r.json()
@@ -2137,9 +2137,11 @@ async def api_autosearch_preview(idx: int = Query(0), key: str = Query("")):
                 "updated": item.get("updated_at", ""),
                 "area": (item.get("area") or {}).get("name", ""),
             })
-        return {"items": items, "total_24h": data.get("found", 0)}
+        total = data.get("found", 0)
+        pages = data.get("pages", 1)
+        return {"items": items, "total_24h": total, "page": page, "pages": pages}
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        return {"items": [], "total_24h": 0, "error": str(e)}
 
 
 @app.get("/api/autosearch/stats")
@@ -2287,7 +2289,7 @@ async def api_btl_autosearch_check(idx: int = Query(0), key: str = Query("")):
     return {"count": count, "count_24h": count_24h}
 
 @app.get("/api/autosearch/btl/preview")
-async def api_btl_autosearch_preview(idx: int = Query(0), key: str = Query("")):
+async def api_btl_autosearch_preview(idx: int = Query(0), page: int = Query(0), key: str = Query("")):
     check_key(key)
     companies = _load_btl_companies()
     if idx < 0 or idx >= len(companies):
@@ -2295,7 +2297,7 @@ async def api_btl_autosearch_preview(idx: int = Query(0), key: str = Query("")):
     comp = companies[idx]
     hh_key = comp.get("hh_key", "")
     if not hh_key:
-        return {"items": []}
+        return {"items": [], "total_24h": 0, "page": 0, "pages": 0}
 
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -2305,7 +2307,7 @@ async def api_btl_autosearch_preview(idx: int = Query(0), key: str = Query("")):
         from datetime import datetime, timedelta, timezone
         date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
         r = hh_request("GET", "/resumes", params={
-            "text": hh_key, "per_page": "5", "area": "113",
+            "text": hh_key, "per_page": "20", "page": str(page), "area": "113",
             "date_from": date_from, "order_by": "publication_time"
         })
         data = r.json()
@@ -2323,9 +2325,11 @@ async def api_btl_autosearch_preview(idx: int = Query(0), key: str = Query("")):
                 "updated": item.get("updated_at", ""),
                 "area": (item.get("area") or {}).get("name", ""),
             })
-        return {"items": items, "total_24h": data.get("found", 0)}
+        total = data.get("found", 0)
+        pages = data.get("pages", 1)
+        return {"items": items, "total_24h": total, "page": page, "pages": pages}
     except Exception as e:
-        return {"items": [], "error": str(e)}
+        return {"items": [], "total_24h": 0, "error": str(e)}
 
 @app.get("/api/autosearch/btl/stats")
 async def api_btl_autosearch_stats(key: str = Query("")):
@@ -2439,7 +2443,7 @@ async def api_outsource_check(idx: int = Query(0), key: str = Query("")):
     comp = companies[idx]
     hh_key = comp.get("hh_key", "")
     if not hh_key:
-        return {"count": 0}
+        return {"count": 0, "count_24h": 0}
 
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -2452,10 +2456,21 @@ async def api_outsource_check(idx: int = Query(0), key: str = Query("")):
         logger.error(f"HH check error: {e}")
         count = -1
 
+    # Count 24h
+    count_24h = 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r2 = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "date_from": date_from})
+        count_24h = r2.json().get("found", 0)
+    except:
+        pass
+
     # Save count back
     companies[idx]["last_count"] = count
+    companies[idx]["count_24h"] = count_24h
     _save_outsource_companies(companies)
-    return {"count": count}
+    return {"count": count, "count_24h": count_24h}
 
 @app.get("/api/outsource/stats")
 async def api_outsource_stats(key: str = Query("")):

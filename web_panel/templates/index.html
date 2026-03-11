@@ -67,7 +67,7 @@
           <div class="text-xs text-gray-400" x-text="p.email"></div>
         </div>
         <div class="flex gap-2">
-          <button x-show="p.source==='hh_api'" @click="hhKeysOpen = hhKeysOpen === p.id ? null : p.id" class="px-3 py-1 rounded-full text-xs font-medium transition bg-purple-100 text-purple-700 hover:bg-purple-200">
+          <button x-show="p.id==='outsource_agencies'" @click="hhKeysOpen = hhKeysOpen === p.id ? null : p.id" class="px-3 py-1 rounded-full text-xs font-medium transition bg-purple-100 text-purple-700 hover:bg-purple-200">
             🔑 Ключи HH
           </button>
           <button @click="toggle(p.id, 'report_enabled')" class="px-3 py-1 rounded-full text-xs font-medium transition"
@@ -190,36 +190,6 @@
                 </div>
               </template>
 
-              <!-- Autoflow candidates (inline, after направляющая) -->
-              <template x-if="getAfRun(p.id, j.slug)?.candidates?.length > 0">
-                <div class="border border-gray-200 rounded-lg overflow-hidden">
-                  <div class="px-3 py-2 bg-gray-50 flex flex-wrap items-center gap-2 text-sm cursor-pointer"
-                       @click="getAfRun(p.id, j.slug)._open = !getAfRun(p.id, j.slug)._open">
-                    <span class="font-semibold text-gray-700 text-xs">📊 Результаты автоотбора</span>
-                    <span class="text-xs text-gray-400 ml-auto" x-text="'📅 ' + getAfRun(p.id, j.slug).date"></span>
-                    <span class="text-xs text-green-600" x-text="'✅' + getAfRun(p.id, j.slug).approved"></span>
-                    <span class="text-xs text-yellow-600" x-text="'👁' + getAfRun(p.id, j.slug).reviewed"></span>
-                    <span class="text-xs text-red-500" x-text="'❌' + getAfRun(p.id, j.slug).rejected"></span>
-                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="getAfRun(p.id, j.slug)._open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                  </div>
-                  <div x-show="getAfRun(p.id, j.slug)._open" x-transition class="divide-y divide-gray-100">
-                    <template x-for="c in (getAfRun(p.id, j.slug).candidates || [])" :key="c.link">
-                      <div class="px-3 py-2 flex items-start gap-2 text-sm hover:bg-gray-50">
-                        <span class="flex-shrink-0 w-8 text-center font-bold rounded text-xs"
-                          :class="c.score >= 7 ? 'text-green-700 bg-green-100' : c.score >= 4 ? 'text-yellow-700 bg-yellow-100' : 'text-red-700 bg-red-100'"
-                          x-text="c.score + '/10'"></span>
-                        <div class="flex-1 min-w-0">
-                          <a :href="c.fw_link || c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block text-xs" x-text="c.name"></a>
-                          <div class="text-[10px] text-gray-500 line-clamp-2" x-text="c.reason"></div>
-                        </div>
-                        <span class="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full"
-                          :class="c.status === 'Одобрен ИИ' ? 'bg-green-100 text-green-700' : c.status === 'Просмотрен ИИ' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'"
-                          x-text="c.status"></span>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-              </template>
             </div>
 
             <!-- ═══ EXPANDABLE: Autoflow settings + screening stages ═══ -->
@@ -415,6 +385,37 @@
                   Запустите глубокий скоринг по кандидатам из первичного отбора
                 </div>
               </div>
+
+              <!-- ═══ AUTOFLOW RESULTS (inside expandable) ═══ -->
+              <template x-if="getAfRun(p.id, j.slug)?.candidates?.length > 0">
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                  <div class="px-3 py-2 bg-gray-50 flex flex-wrap items-center gap-2 text-sm cursor-pointer"
+                       @click="getAfRun(p.id, j.slug)._open = !getAfRun(p.id, j.slug)._open">
+                    <span class="font-semibold text-gray-700 text-xs">📊 Результаты автоотбора</span>
+                    <span class="text-xs text-gray-400 ml-auto" x-text="'📅 ' + getAfRun(p.id, j.slug).date"></span>
+                    <span class="text-xs text-green-600" x-text="'✅' + getAfRun(p.id, j.slug).approved"></span>
+                    <span class="text-xs text-yellow-600" x-text="'👁' + getAfRun(p.id, j.slug).reviewed"></span>
+                    <span class="text-xs text-red-500" x-text="'❌' + getAfRun(p.id, j.slug).rejected"></span>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="getAfRun(p.id, j.slug)._open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </div>
+                  <div x-show="getAfRun(p.id, j.slug)._open" x-transition class="divide-y divide-gray-100">
+                    <template x-for="c in (getAfRun(p.id, j.slug).candidates || [])" :key="c.link">
+                      <div class="px-3 py-2 flex items-start gap-2 text-sm hover:bg-gray-50">
+                        <span class="flex-shrink-0 w-8 text-center font-bold rounded text-xs"
+                          :class="c.score >= 7 ? 'text-green-700 bg-green-100' : c.score >= 4 ? 'text-yellow-700 bg-yellow-100' : 'text-red-700 bg-red-100'"
+                          x-text="c.score + '/10'"></span>
+                        <div class="flex-1 min-w-0">
+                          <a :href="c.fw_link || c.link" target="_blank" class="font-medium text-blue-600 hover:underline truncate block text-xs" x-text="c.name"></a>
+                          <div class="text-[10px] text-gray-500 line-clamp-2" x-text="c.reason"></div>
+                        </div>
+                        <span class="flex-shrink-0 text-[10px] px-2 py-0.5 rounded-full"
+                          :class="c.status === 'Одобрен ИИ' ? 'bg-green-100 text-green-700' : c.status === 'Просмотрен ИИ' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'"
+                          x-text="c.status"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
 
               <!-- ═══ 3. ИМПОРТ В FW ═══ -->
               <template x-if="D(p.id,j.slug).results?.length && !D(p.id,j.slug).running">

@@ -167,7 +167,10 @@
           Нет обновлённых резюме за последние 24 часа
         </div>
         <div x-show="!previewLoading && previewItems.length > 0" class="space-y-3">
-          <div class="text-xs text-gray-400 mb-2" x-text="'Найдено за 24ч: ' + previewTotal"></div>
+          <div class="flex items-center justify-between text-xs text-gray-400 mb-2">
+            <span x-text="'Найдено за 24ч: ' + previewTotal"></span>
+            <span x-text="'Стр. ' + (previewPage+1) + ' из ' + previewPages"></span>
+          </div>
           <template x-for="item in previewItems" :key="item.url">
             <a :href="item.url" target="_blank" class="block p-3 rounded-lg border hover:border-blue-300 hover:bg-blue-50/50 transition-colors">
               <div class="font-medium text-gray-800" x-text="item.title"></div>
@@ -178,6 +181,14 @@
               </div>
             </a>
           </template>
+          <!-- Pagination -->
+          <div x-show="previewPages > 1" class="flex items-center justify-center gap-2 pt-2">
+            <button @click="previewCompany(previewIdx, previewPage - 1)" :disabled="previewPage <= 0"
+              class="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 disabled:opacity-30">← Назад</button>
+            <span class="text-xs text-gray-500" x-text="(previewPage+1) + ' / ' + previewPages"></span>
+            <button @click="previewCompany(previewIdx, previewPage + 1)" :disabled="previewPage >= previewPages - 1"
+              class="px-3 py-1 bg-gray-100 rounded text-sm hover:bg-gray-200 disabled:opacity-30">Вперёд →</button>
+          </div>
         </div>
       </div>
     </div>
@@ -218,6 +229,8 @@ function autosearchApp() {
     previewItems: [],
     previewTotal: 0,
     previewLoading: false,
+    previewPage: 0,
+    previewPages: 0,
     scoredCount: '—',
     relevantCount: 0,
     search: '',
@@ -277,17 +290,18 @@ function autosearchApp() {
       } catch(e) {}
     },
 
-    async previewCompany(idx) {
+    async previewCompany(idx, page = 0) {
       this.previewIdx = idx;
       this.previewLoading = true;
-      this.previewItems = [];
-      this.previewTotal = 0;
+      if (page === 0) { this.previewItems = []; this.previewTotal = 0; }
       try {
-        const r = await fetch(`/api/autosearch/preview?key=${this.key}&idx=${idx}`);
+        const r = await fetch(`/api/autosearch/preview?key=${this.key}&idx=${idx}&page=${page}`);
         if (r.ok) {
           const d = await r.json();
           this.previewItems = d.items || [];
           this.previewTotal = d.total_24h || 0;
+          this.previewPage = d.page || 0;
+          this.previewPages = d.pages || 1;
         }
       } catch(e) {}
       this.previewLoading = false;

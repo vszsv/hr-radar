@@ -1009,7 +1009,7 @@ def run_autoflow_deep_scoring(links: List[str], job: JobConfig, openai_config: D
         prompt_path = BASE / "config" / "prompts" / job.prompt_file
     prompt = prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else "Оцени кандидата."
     
-    model = panel_config.get("default_model", openai_config.get("model", "gpt-4o"))
+    model = panel_config.get("default_model", openai_config.get("model", "gpt-5.2"))
     
     # Try to use HH API
     hh_get_resume = None
