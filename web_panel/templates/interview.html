@@ -57,7 +57,7 @@
                   <a x-show="h.video_url" :href="h.video_url" target="_blank"
                     class="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">🎥 Видео</a>
                 </div>
-                <span class="text-[10px] text-gray-400 transition-transform" :class="open && 'rotate-90'">▶ подробнее</span>
+                <span class="text-[10px] text-gray-400" x-text="open ? '▼ свернуть' : '▶ подробнее'"></span>
               </div>
             </div>
           </div>
