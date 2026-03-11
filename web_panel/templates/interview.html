@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HR Radar — Анализ интервью</title>
+<title>HR Radar — Оценка видеоинтервью</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <style>[x-cloak]{display:none!important}</style>
@@ -15,11 +15,340 @@
 <!-- Page header -->
 <div class="bg-white border-b">
   <div class="max-w-4xl mx-auto px-4 py-3">
-    <h2 class="text-base font-semibold text-gray-700">🎤 Анализ интервью</h2>
+    <h2 class="text-base font-semibold text-gray-700">🎬 Оценка видеоинтервью</h2>
   </div>
 </div>
 
 <main class="max-w-4xl mx-auto px-4 py-6">
+
+  <!-- ═══ HISTORY ═══ -->
+  <div x-show="!analyzing && !result && history.length > 0" class="mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-sm font-bold text-gray-700">📋 История интервью</h3>
+      <button @click="showHistory = !showHistory" class="text-xs text-blue-600" x-text="showHistory ? '▼ Скрыть' : '▶ Показать (' + history.length + ')'"></button>
+    </div>
+    <div x-show="showHistory" x-transition class="space-y-4">
+      <template x-for="(h, hi) in history" :key="h.id">
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden" x-data="{open:false, showTranscript:false, section:''}">
+          <!-- Header -->
+          <div class="p-4 cursor-pointer" @click="open=!open">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-gray-800 mb-1" x-text="h.summary"></div>
+                <div class="flex flex-wrap gap-2 text-[11px] text-gray-500 mb-2">
+                  <span x-text="'📅 ' + (h.created||'').substring(0,10)"></span>
+                  <span x-text="'🎯 ' + h.vacancy"></span>
+                  <span x-text="'🤖 ' + (h.model||'').substring(0,25)"></span>
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="s in (h.strengths||[]).slice(0,3)" :key="s">
+                    <span class="text-[10px] bg-green-100 text-green-700 rounded px-1.5 py-0.5" x-text="'✅ ' + s.substring(0,50)"></span>
+                  </template>
+                  <template x-for="r in (h.risks||[]).slice(0,2)" :key="r">
+                    <span class="text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5" x-text="'⚠️ ' + r.substring(0,50)"></span>
+                  </template>
+                </div>
+              </div>
+              <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                <span class="text-lg font-bold" :class="h.score >= 7 ? 'text-green-600' : h.score >= 4 ? 'text-yellow-600' : 'text-red-500'" x-text="h.score + '/10'"></span>
+                <div class="flex gap-1" @click.stop>
+                  <a x-show="h.has_pdf" :href="'/api/interview/' + h.id + '/pdf?key=' + key" target="_blank"
+                    class="text-[11px] bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">📄 PDF</a>
+                  <a x-show="h.video_url" :href="h.video_url" target="_blank"
+                    class="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">🎥 Видео</a>
+                </div>
+                <span class="text-[10px] text-gray-400 transition-transform" :class="open && 'rotate-90'">▶ подробнее</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Expanded details -->
+          <div x-show="open" x-transition class="border-t border-gray-100 px-4 pb-4 space-y-3">
+            
+            <!-- Recommendation -->
+            <div class="bg-blue-50 rounded-lg p-3 mt-3">
+              <div class="text-[11px] font-semibold text-blue-700 mb-1">💡 Рекомендация</div>
+              <div class="text-xs text-gray-700" x-text="h.recommendation"></div>
+            </div>
+
+            <!-- Section tabs -->
+            <div class="flex flex-wrap gap-1.5">
+              <button @click="section = section==='fit' ? '' : 'fit'" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="section==='fit' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🎯 Соответствие вакансии</button>
+              <button @click="section = section==='psych' ? '' : 'psych'" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="section==='psych' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🧠 Психологический профиль</button>
+              <button @click="section = section==='speech' ? '' : 'speech'" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="section==='speech' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🗣️ Анализ речи</button>
+              <button @click="section = section==='psychotype' ? '' : 'psychotype'" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="section==='psychotype' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🔮 Психотип</button>
+              <button @click="section = section==='questions' ? '' : 'questions'" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="section==='questions' ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-600 hover:bg-orange-200'">❓ Вопросы для интервью</button>
+              <button @click="showTranscript = !showTranscript" class="px-2.5 py-1 rounded-full text-[11px] font-medium transition"
+                :class="showTranscript ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">📝 Транскрипция</button>
+            </div>
+
+            <!-- Vacancy fit -->
+            <div x-show="section==='fit'" x-transition class="bg-purple-50 rounded-lg p-3 space-y-2">
+              <div class="text-[11px] font-semibold text-purple-700">🎯 Соответствие вакансии (<span x-text="h.score + '/10'"></span>)</div>
+              <div x-show="h.vacancy_fit?.relevant_experience?.length">
+                <div class="text-[10px] font-semibold text-gray-600 mb-1">Релевантный опыт:</div>
+                <template x-for="e in h.vacancy_fit.relevant_experience" :key="e">
+                  <div class="text-[11px] text-gray-700 mb-0.5">• <span x-text="e"></span></div>
+                </template>
+              </div>
+              <div x-show="h.vacancy_fit?.hard_skills?.length">
+                <div class="text-[10px] font-semibold text-gray-600 mb-1 mt-2">Hard skills:</div>
+                <template x-for="s in h.vacancy_fit.hard_skills" :key="s">
+                  <span class="inline-block text-[10px] bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 mr-1 mb-1" x-text="s"></span>
+                </template>
+              </div>
+              <div x-show="h.vacancy_fit?.gaps?.length">
+                <div class="text-[10px] font-semibold text-gray-600 mb-1 mt-2">Пробелы:</div>
+                <template x-for="g in h.vacancy_fit.gaps" :key="g">
+                  <div class="text-[11px] text-red-600 mb-0.5">⚠️ <span x-text="g"></span></div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Psychological profile -->
+            <div x-show="section==='psych'" x-transition class="bg-green-50 rounded-lg p-3 space-y-2">
+              <div class="text-[11px] font-semibold text-green-700">🧠 Психологический профиль</div>
+              <template x-for="(val, key) in h.psychological_profile || {}" :key="key">
+                <div class="mb-2">
+                  <div class="text-[10px] font-semibold text-gray-600 capitalize" x-text="key.replace(/_/g, ' ')"></div>
+                  <div class="text-[11px] text-gray-700" x-text="val"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Speech analysis -->
+            <div x-show="section==='speech'" x-transition class="bg-yellow-50 rounded-lg p-3 space-y-2">
+              <div class="text-[11px] font-semibold text-yellow-700">🗣️ Анализ речи</div>
+              <template x-for="(val, key) in h.speech_analysis || {}" :key="key">
+                <div class="mb-2">
+                  <div class="text-[10px] font-semibold text-gray-600 capitalize" x-text="key.replace(/_/g, ' ')"></div>
+                  <div class="text-[11px] text-gray-700" x-text="typeof val === 'object' ? JSON.stringify(val) : val"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Psychotype -->
+            <div x-show="section==='psychotype'" x-transition class="bg-indigo-50 rounded-lg p-3 space-y-2">
+              <div class="text-[11px] font-semibold text-indigo-700">🔮 Психотип</div>
+              <template x-for="(val, key) in h.psychotype_analysis || {}" :key="key">
+                <div class="mb-2">
+                  <div class="text-[10px] font-semibold text-gray-600 capitalize" x-text="key.replace(/_/g, ' ')"></div>
+                  <div class="text-[11px] text-gray-700" x-text="val"></div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Next interview questions -->
+            <div x-show="section==='questions'" x-transition class="bg-orange-50 rounded-lg p-3 space-y-1">
+              <div class="text-[11px] font-semibold text-orange-700 mb-1">❓ Рекомендованные вопросы для следующего интервью</div>
+              <template x-for="(q, qi) in h.next_questions || []" :key="qi">
+                <div class="text-[11px] text-gray-700"><span class="font-medium text-orange-600" x-text="(qi+1) + '.'"></span> <span x-text="q"></span></div>
+              </template>
+              <div x-show="!h.next_questions?.length" class="text-[11px] text-gray-400">Нет вопросов</div>
+            </div>
+
+            <!-- Transcript -->
+            <div x-show="showTranscript" x-transition class="bg-gray-50 rounded-lg p-3">
+              <div class="text-[11px] font-semibold text-gray-700 mb-1">📝 Транскрипция</div>
+              <div class="text-[11px] text-gray-600 max-h-96 overflow-y-auto whitespace-pre-wrap" x-text="h.transcript || 'Нет транскрипции'"></div>
+            </div>
+
+            <!-- Full strengths & risks -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="bg-green-50 rounded-lg p-3">
+                <div class="text-[11px] font-semibold text-green-700 mb-1">✅ Сильные стороны</div>
+                <template x-for="s in h.strengths || []" :key="s">
+                  <div class="text-[11px] text-gray-700 mb-1">• <span x-text="s"></span></div>
+                </template>
+              </div>
+              <div class="bg-red-50 rounded-lg p-3">
+                <div class="text-[11px] font-semibold text-red-700 mb-1">⚠️ Риски</div>
+                <template x-for="r in h.risks || []" :key="r">
+                  <div class="text-[11px] text-gray-700 mb-1">• <span x-text="r"></span></div>
+                </template>
+              </div>
+            </div>
+
+            <!-- ═══ STAGE 2: Personal Interview ═══ -->
+            <div class="border-t border-gray-200 pt-3 mt-3" x-data="{
+              s2form:false, s2running:false, s2status:'', s2result:null, s2file:null, s2url:'', s2model:'claude-sonnet-4-6', s2transcript:'', showS2transcript:false, s2section:'',
+              async startStage2(interviewId) {
+                if (!this.s2file && !this.s2url) return;
+                this.s2running = true; this.s2form = false; this.s2status = 'Запуск...';
+                const formData = new FormData();
+                if (this.s2file) formData.append('audio_file', this.s2file);
+                formData.append('audio_url', this.s2url || '');
+                formData.append('model', this.s2model);
+                const key = new URLSearchParams(window.location.search).get('key') || '';
+                try {
+                  const r = await fetch('/api/interview/' + interviewId + '/stage2?key=' + key, {method:'POST', body: formData});
+                  const data = await r.json();
+                  if (data.error) { this.s2status = 'Ошибка: ' + data.error; this.s2running = false; return; }
+                  const taskId = data.task_id;
+                  const stages = {extracting_audio:'🎵 Извлечение аудио', transcribing:'📝 Транскрибация', analyzing:'🤖 AI-анализ'};
+                  const es = new EventSource('/api/interview/stage2/' + taskId + '/stream?key=' + key);
+                  es.onmessage = (e) => {
+                    const d = JSON.parse(e.data);
+                    if (d.stage === 'done') { this.s2status = 'Готово! Обновляю...'; this.s2running = false; es.close(); window.location.reload(); }
+                    else if (d.stage === 'error') { this.s2status = '❌ ' + d.message; this.s2running = false; es.close(); }
+                    else { this.s2status = (stages[d.stage] || d.stage) + '... ' + (d.progress||0) + '%'; }
+                  };
+                  es.onerror = () => { this.s2running = false; es.close(); };
+                } catch(e) { this.s2status = 'Ошибка: ' + e; this.s2running = false; }
+              }
+            }">
+              
+              <!-- Stage 2 results (if exists) -->
+              <template x-if="h.stages?.length > 0">
+                <div class="space-y-3">
+                  <template x-for="(stg, si) in h.stages" :key="si">
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <div class="text-[11px] font-semibold text-amber-700">🎯 Этап <span x-text="stg.stage"></span>: Личное интервью</div>
+                        <div class="flex items-center gap-2">
+                          <span class="text-[10px] text-gray-400" x-text="(stg.created_at||'').substring(0,10)"></span>
+                          <span class="text-sm font-bold" :class="(stg.analysis?.updated_assessment?.score||0) >= 7 ? 'text-green-600' : 'text-yellow-600'"
+                            x-text="(stg.analysis?.updated_assessment?.score||'?') + '/10'"></span>
+                          <span class="text-[10px] font-medium" :class="(stg.analysis?.updated_assessment?.score_change||'').startsWith('+') ? 'text-green-600' : (stg.analysis?.updated_assessment?.score_change||'').startsWith('-') ? 'text-red-600' : 'text-gray-500'"
+                            x-text="stg.analysis?.updated_assessment?.score_change || ''"></span>
+                        </div>
+                      </div>
+
+                      <!-- Summary -->
+                      <div class="text-xs text-gray-700" x-text="stg.analysis?.summary"></div>
+
+                      <!-- Comparison -->
+                      <div x-show="stg.analysis?.comparison_with_stage1" class="space-y-1">
+                        <template x-for="cs in stg.analysis?.comparison_with_stage1?.confirmed_strengths || []" :key="cs">
+                          <span class="inline-block text-[10px] bg-green-100 text-green-700 rounded px-1.5 py-0.5 mr-1">✅ <span x-text="cs.substring(0,60)"></span></span>
+                        </template>
+                        <template x-for="ni in stg.analysis?.comparison_with_stage1?.new_insights || []" :key="ni">
+                          <span class="inline-block text-[10px] bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 mr-1">💡 <span x-text="ni.substring(0,60)"></span></span>
+                        </template>
+                        <template x-for="rr in stg.analysis?.comparison_with_stage1?.resolved_risks || []" :key="rr">
+                          <span class="inline-block text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 mr-1">🟢 <span x-text="rr.substring(0,60)"></span></span>
+                        </template>
+                        <template x-for="rmr in stg.analysis?.comparison_with_stage1?.remaining_risks || []" :key="rmr">
+                          <span class="inline-block text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5 mr-1">🔴 <span x-text="rmr.substring(0,60)"></span></span>
+                        </template>
+                      </div>
+
+                      <!-- Section tabs for Stage 2 -->
+                      <div class="flex flex-wrap gap-1">
+                        <button @click="s2section = s2section==='impression' ? '' : 'impression'" class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                          :class="s2section==='impression' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'">👤 Впечатление</button>
+                        <button @click="s2section = s2section==='answers' ? '' : 'answers'" class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                          :class="s2section==='answers' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'">📋 Ответы</button>
+                        <button @click="s2section = s2section==='assessment' ? '' : 'assessment'" class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                          :class="s2section==='assessment' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'">📊 Итоговая оценка</button>
+                        <button @click="showS2transcript = !showS2transcript" class="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                          :class="showS2transcript ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600'">📝 Транскрипция</button>
+                      </div>
+
+                      <!-- Personal impression -->
+                      <div x-show="s2section==='impression'" x-transition class="bg-white rounded-lg p-2.5 space-y-1.5">
+                        <template x-for="(val, key) in stg.analysis?.personal_impression || {}" :key="key">
+                          <div>
+                            <span class="text-[10px] font-semibold text-gray-600 capitalize" x-text="key.replace(/_/g, ' ') + ':'"></span>
+                            <span class="text-[11px] text-gray-700 ml-1" x-text="val"></span>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Deep dive answers -->
+                      <div x-show="s2section==='answers'" x-transition class="bg-white rounded-lg p-2.5 space-y-2">
+                        <template x-for="(ans, ai) in stg.analysis?.deep_dive_answers || []" :key="ai">
+                          <div class="border-b border-gray-100 pb-1.5">
+                            <div class="flex items-center gap-1.5">
+                              <span class="text-[10px] font-bold" :class="ans.quality==='хорошо' ? 'text-green-600' : ans.quality==='средне' ? 'text-yellow-600' : 'text-red-500'" x-text="ans.quality"></span>
+                              <span class="text-[11px] font-medium text-gray-800" x-text="ans.topic"></span>
+                            </div>
+                            <div class="text-[10px] text-gray-600 mt-0.5" x-text="ans.analysis"></div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Updated assessment -->
+                      <div x-show="s2section==='assessment'" x-transition class="bg-white rounded-lg p-2.5 space-y-2">
+                        <div class="text-[11px] font-semibold text-gray-700">💡 Рекомендация</div>
+                        <div class="text-[11px] text-gray-700" x-text="stg.analysis?.updated_assessment?.recommendation"></div>
+                        <div class="grid grid-cols-2 gap-2 mt-2">
+                          <div>
+                            <div class="text-[10px] font-semibold text-green-700">Сильные стороны</div>
+                            <template x-for="s in stg.analysis?.updated_assessment?.strengths || []" :key="s">
+                              <div class="text-[10px] text-gray-700">• <span x-text="s"></span></div>
+                            </template>
+                          </div>
+                          <div>
+                            <div class="text-[10px] font-semibold text-red-700">Риски</div>
+                            <template x-for="r in stg.analysis?.updated_assessment?.risks || []" :key="r">
+                              <div class="text-[10px] text-gray-700">• <span x-text="r"></span></div>
+                            </template>
+                          </div>
+                        </div>
+                        <div x-show="stg.analysis?.updated_assessment?.onboarding_notes?.length">
+                          <div class="text-[10px] font-semibold text-blue-700 mt-1">📋 Рекомендации по онбордингу</div>
+                          <template x-for="n in stg.analysis?.updated_assessment?.onboarding_notes || []" :key="n">
+                            <div class="text-[10px] text-gray-700">• <span x-text="n"></span></div>
+                          </template>
+                        </div>
+                      </div>
+
+                      <!-- S2 Transcript -->
+                      <div x-show="showS2transcript" x-transition class="bg-gray-50 rounded-lg p-2.5">
+                        <div class="text-[11px] text-gray-600 max-h-64 overflow-y-auto whitespace-pre-wrap" x-text="stg.transcript || 'Нет'"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Stage 2 upload form -->
+              <div class="mt-3">
+                <button x-show="!s2form && !s2running" @click="s2form=true"
+                  class="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition">
+                  🎯 Добавить личное интервью (этап <span x-text="(h.stages?.length||0)+2"></span>)
+                </button>
+
+                <!-- Upload form -->
+                <div x-show="s2form && !s2running" x-transition class="bg-amber-50 rounded-lg p-3 space-y-3 mt-2">
+                  <div class="text-[11px] font-semibold text-amber-700">Загрузите аудио/видео личного интервью</div>
+                  <input type="file" accept="audio/*,video/*" @change="s2file=$event.target.files[0]"
+                    class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2 bg-white">
+                  <div class="text-[10px] text-gray-500">Или ссылка на видео:</div>
+                  <input x-model="s2url" placeholder="https://cloud.mail.ru/..." class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2">
+                  <div class="flex items-center gap-3">
+                    <select x-model="s2model" class="text-xs border rounded-lg px-2 py-1.5">
+                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                    </select>
+                    <button @click="startStage2(h.id)" :disabled="!s2file && !s2url"
+                      class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                      🚀 Анализировать
+                    </button>
+                    <button @click="s2form=false" class="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm">Отмена</button>
+                  </div>
+                </div>
+
+                <!-- Progress -->
+                <div x-show="s2running" class="bg-amber-50 rounded-lg p-3 mt-2">
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="animate-spin h-4 w-4 border-2 border-amber-600 border-t-transparent rounded-full"></div>
+                    <span class="text-sm font-medium text-amber-800" x-text="s2status"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
 
   <!-- ═══ FORM ═══ -->
   <div x-show="!analyzing && !result" class="space-y-4">
@@ -437,6 +766,8 @@ function interviewApp() {
     currentTaskId: '',
     uploads: { vacancies: [], resumes: [], videos: [] },
     model: 'claude-sonnet-4-6',
+    history: [],
+    showHistory: true,
     dragOver: false,
     analyzing: false,
     result: null,
@@ -457,14 +788,17 @@ function interviewApp() {
 
     async init() {
       try {
-        const [promptsResp, uploadsResp] = await Promise.all([
+        const [promptsResp, uploadsResp, historyResp] = await Promise.all([
           fetch(`/api/interview/prompts?key=${this.key}`),
-          fetch(`/api/interview/uploads?key=${this.key}`)
+          fetch(`/api/interview/uploads?key=${this.key}`),
+          fetch(`/api/interview/history?key=${this.key}`)
         ]);
         const promptsData = await promptsResp.json();
         this.prompts = promptsData.prompts || [];
         const uploadsData = await uploadsResp.json();
         this.uploads = uploadsData || { vacancies: [], resumes: [], videos: [] };
+        const historyData = await historyResp.json();
+        this.history = historyData.interviews || [];
       } catch (e) {
         console.error('Failed to load data:', e);
       }
@@ -519,6 +853,9 @@ function interviewApp() {
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     },
+
+    // Exposed for stage2 nested x-data to call
+    get _key() { return this.key; },
 
     async startAnalysis() {
       this.formError = '';

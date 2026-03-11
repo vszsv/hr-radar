@@ -1843,6 +1843,49 @@ async def api_interview_prompts(key: str = Query("")):
     return {"prompts": _get_prompts_list()}
 
 
+@app.get("/api/interview/history")
+async def api_interview_history(key: str = Query("")):
+    check_key(key)
+    results = []
+    if INTERVIEWS_DIR.exists():
+        for f in INTERVIEWS_DIR.iterdir():
+            if not f.suffix == '.json':
+                continue
+            try:
+                data = json.loads(f.read_text(encoding='utf-8'))
+                a = data.get('analysis', {})
+                summary = a.get('summary', '')
+                if isinstance(summary, dict):
+                    summary = str(summary)
+                vf = a.get('vacancy_fit', {})
+                overall = a.get('overall', {})
+                has_pdf = (INTERVIEWS_DIR / f"{f.stem}.pdf").exists()
+                results.append({
+                    'id': f.stem,
+                    'created': data.get('created_at', ''),
+                    'video_url': data.get('video_url', ''),
+                    'vacancy': data.get('vacancy', ''),
+                    'model': data.get('model', ''),
+                    'score': vf.get('score'),
+                    'summary': summary or '',
+                    'recommendation': overall.get('recommendation', '') or '',
+                    'strengths': overall.get('strengths', []),
+                    'risks': overall.get('risks', []),
+                    'next_questions': overall.get('next_interview_questions', []),
+                    'has_pdf': has_pdf,
+                    'transcript': data.get('transcript', ''),
+                    'vacancy_fit': vf,
+                    'psychological_profile': a.get('psychological_profile', {}),
+                    'speech_analysis': a.get('speech_analysis', {}),
+                    'psychotype_analysis': a.get('psychotype_analysis', {}),
+                    'stages': data.get('stages', []),
+                })
+            except:
+                pass
+    results.sort(key=lambda x: x.get('created', ''), reverse=True)
+    return {"interviews": results}
+
+
 @app.get("/api/interview/uploads")
 async def api_interview_uploads(key: str = Query("")):
     """List previously uploaded files by category."""
@@ -2002,6 +2045,253 @@ async def api_interview_stream(task_id: str, key: str = Query("")):
         await asyncio.sleep(60)
         _interview_tasks.pop(task_id, None)
 
+    return EventSourceResponse(event_generator())
+
+
+# ─── Stage 2: Personal Interview Analysis ───
+
+_stage2_tasks = {}  # task_id -> {"stage": ..., "progress": ..., ...}
+
+def _analyze_stage2(transcript: str, stage1_data: dict, model: str) -> dict:
+    """Analyze Stage 2 (personal interview) with full context from Stage 1."""
+    client = anthropic.Anthropic()
+    
+    s1_analysis = stage1_data.get('analysis', {})
+    s1_summary = s1_analysis.get('summary', '')
+    s1_overall = s1_analysis.get('overall', {})
+    s1_vf = s1_analysis.get('vacancy_fit', {})
+    s1_psych = s1_analysis.get('psychological_profile', {})
+    s1_risks = s1_overall.get('risks', [])
+    s1_strengths = s1_overall.get('strengths', [])
+    s1_questions = s1_overall.get('next_interview_questions', [])
+    s1_transcript = stage1_data.get('transcript', '')
+
+    system_prompt = f"""Ты — экспертный HR-аналитик. Это ВТОРОЙ ЭТАП оценки кандидата — личное интервью.
+
+=== КОНТЕКСТ ПЕРВОГО ЭТАПА (видеоинтервью) ===
+Резюме: {s1_summary}
+
+Скор соответствия вакансии: {s1_vf.get('score', '?')}/10
+
+Сильные стороны (из 1-го этапа):
+{chr(10).join('- ' + s for s in s1_strengths)}
+
+Риски (из 1-го этапа):
+{chr(10).join('- ' + r for r in s1_risks)}
+
+Рекомендованные вопросы для этого интервью:
+{chr(10).join(str(i+1) + '. ' + q for i, q in enumerate(s1_questions))}
+
+Психологический профиль:
+- Тип мышления: {s1_psych.get('thinking_type', 'N/A')}
+- Стиль коммуникации: {s1_psych.get('communication_style', 'N/A')}
+- Лидерство: {s1_psych.get('leadership', 'N/A')}
+- Мотивация: {s1_psych.get('motivation', 'N/A')}
+
+=== ЗАДАЧА ===
+Проанализируй транскрипцию ЛИЧНОГО ИНТЕРВЬЮ (2-й этап). Сравни с данными 1-го этапа.
+
+Дай анализ в формате JSON (только JSON, без markdown):
+{{
+    "summary": "Краткое резюме личного интервью (2-3 предложения)",
+    "comparison_with_stage1": {{
+        "confirmed_strengths": ["Что подтвердилось из 1-го этапа — с цитатой"],
+        "new_insights": ["Новое, что узнали — с цитатой"],
+        "resolved_risks": ["Какие риски снялись — с объяснением"],
+        "remaining_risks": ["Какие риски остались или усилились"],
+        "contradictions": ["Противоречия с 1-м этапом, если есть"]
+    }},
+    "personal_impression": {{
+        "rapport": "Установление контакта, химия (2-3 предложения + цитата)",
+        "authenticity": "Искренность, совпадение с видеоинтервью (2-3 предложения)",
+        "cultural_fit": "Культурный fit с командой (2-3 предложения + цитата)",
+        "energy_level": "Энергия, мотивация, заинтересованность (2-3 предложения)"
+    }},
+    "deep_dive_answers": [
+        {{
+            "topic": "Тема вопроса",
+            "quality": "хорошо/средне/слабо",
+            "analysis": "Анализ ответа (2-3 предложения с цитатой)"
+        }}
+    ],
+    "updated_assessment": {{
+        "score": "<число от 1 до 10 — обновлённый скор>",
+        "score_change": "<+N/-N/0 относительно 1-го этапа>",
+        "strengths": ["Обновлённые топ-3 сильные стороны"],
+        "risks": ["Обновлённые топ-3 риска"],
+        "recommendation": "Финальная рекомендация: нанимать/отказ/доп.этап (3-5 предложений)",
+        "onboarding_notes": ["Рекомендации по онбордингу, если нанимать (2-3 пункта)"]
+    }}
+}}"""
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=8000,
+        messages=[{
+            "role": "user",
+            "content": f"Транскрипция личного интервью (2-й этап):\n\n{transcript}"
+        }],
+        system=system_prompt
+    )
+
+    text = response.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(text)
+
+
+def _run_stage2_pipeline(task_id: str, interview_id: str, audio_path: str, model: str):
+    """Run Stage 2 analysis pipeline."""
+    task = _stage2_tasks[task_id]
+    work_dir = INTERVIEWS_DIR / f"stage2_{task_id}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Load Stage 1 data
+        s1_path = INTERVIEWS_DIR / f"{interview_id}.json"
+        if not s1_path.exists():
+            raise Exception(f"Stage 1 data not found: {interview_id}")
+        stage1_data = json.loads(s1_path.read_text(encoding='utf-8'))
+
+        # Step 1: Extract audio if video
+        task.update({"stage": "extracting_audio", "progress": 10})
+        ext = Path(audio_path).suffix.lower()
+        if ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm'):
+            extracted = str(work_dir / "audio.mp3")
+            _extract_audio(audio_path, extracted)
+            audio_path = extracted
+        task.update({"stage": "extracting_audio", "progress": 100})
+
+        # Step 2: Transcribe
+        task.update({"stage": "transcribing", "progress": 10})
+        transcript = _transcribe_audio(audio_path)
+        task.update({"stage": "transcribing", "progress": 80})
+
+        # Identify speakers
+        if "Спикер" in transcript:
+            import anthropic as _anth
+            _client = _anth.Anthropic()
+            transcript = _identify_speakers(transcript, _client)
+        task.update({"stage": "transcribing", "progress": 100})
+
+        # Step 3: Analyze with Stage 1 context
+        task.update({"stage": "analyzing", "progress": 10})
+        analysis = _analyze_stage2(transcript, stage1_data, model)
+        task.update({"stage": "analyzing", "progress": 100})
+
+        # Save Stage 2 into the same interview JSON
+        stage2_entry = {
+            "task_id": task_id,
+            "stage": 2,
+            "model": model,
+            "transcript": transcript,
+            "analysis": analysis,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        # Append to stages array in original interview
+        if 'stages' not in stage1_data:
+            stage1_data['stages'] = []
+        stage1_data['stages'].append(stage2_entry)
+        s1_path.write_text(json.dumps(stage1_data, ensure_ascii=False, indent=2))
+
+        task.update({"stage": "done", "result": analysis, "transcript": transcript, "task_id": task_id})
+
+    except Exception as e:
+        task.update({"stage": "error", "message": str(e)})
+    finally:
+        try:
+            import shutil
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+        except:
+            pass
+
+
+@app.post("/api/interview/{interview_id}/stage2")
+async def api_interview_stage2(
+    interview_id: str,
+    key: str = Query(""),
+    audio_file: UploadFile = File(None),
+    audio_url: str = Form(""),
+    model: str = Form("claude-sonnet-4-6"),
+):
+    check_key(key)
+    
+    # Check Stage 1 exists
+    s1_path = INTERVIEWS_DIR / f"{interview_id}.json"
+    if not s1_path.exists():
+        raise HTTPException(404, "Interview not found")
+
+    import uuid
+    task_id = str(uuid.uuid4())
+    _stage2_tasks[task_id] = {"stage": "queued", "progress": 0}
+
+    # Handle audio file
+    audio_path = ""
+    if audio_file and audio_file.filename:
+        safe_name = audio_file.filename.replace("/", "_").replace("..", "_")
+        persist_path = INTERVIEW_UPLOADS_DIR / "stage2" / safe_name
+        persist_path.parent.mkdir(parents=True, exist_ok=True)
+        content = await audio_file.read()
+        with open(persist_path, "wb") as f:
+            f.write(content)
+        audio_path = str(persist_path)
+    elif audio_url:
+        # Download
+        work_dir = INTERVIEWS_DIR / f"stage2_{task_id}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        dest = str(work_dir / "audio_download.mp4")
+        if "cloud.mail.ru" in audio_url:
+            _download_from_cloud_mail(audio_url, dest)
+        else:
+            _download_direct(audio_url, dest)
+        audio_path = dest
+    
+    if not audio_path:
+        raise HTTPException(400, "No audio provided")
+
+    import threading
+    t = threading.Thread(
+        target=_run_stage2_pipeline,
+        args=(task_id, interview_id, audio_path, model),
+        daemon=True,
+    )
+    t.start()
+    return {"task_id": task_id, "status": "started"}
+
+
+@app.get("/api/interview/stage2/{task_id}/stream")
+async def api_stage2_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+    if task_id not in _stage2_tasks:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+
+    async def event_generator():
+        last_stage = ""
+        last_progress = -1
+        while True:
+            task = _stage2_tasks.get(task_id, {})
+            stage = task.get("stage", "queued")
+            progress = task.get("progress", 0)
+            if stage != last_stage or progress != last_progress:
+                if stage == "done":
+                    yield {"data": json.dumps({
+                        "stage": "done",
+                        "result": task.get("result", {}),
+                        "transcript": task.get("transcript", ""),
+                    }, ensure_ascii=False)}
+                    break
+                elif stage == "error":
+                    yield {"data": json.dumps({"stage": "error", "message": task.get("message", "Unknown error")}, ensure_ascii=False)}
+                    break
+                else:
+                    yield {"data": json.dumps({"stage": stage, "progress": progress}, ensure_ascii=False)}
+                last_stage = stage
+                last_progress = progress
+            await asyncio.sleep(1)
+
+    from sse_starlette.sse import EventSourceResponse
     return EventSourceResponse(event_generator())
 
 
