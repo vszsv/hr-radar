@@ -77,6 +77,34 @@ profiles:
         emoji: "💼"
         description: "New Business Director / Manager — привлечение клиентов, работа с входящими лидами, брифами"
 
+  btl_spb:
+    name: "BTL агентства — СПб"
+    description: "Поиск кандидатов для BTL-агентств в Санкт-Петербурге"
+    source: "hh_api"
+    hh_companies_file: "btl_spb_companies.json"
+    hh_area: "2"  # Санкт-Петербург
+    telegram:
+      bot_token_env: "TELEGRAM_BOT_TOKEN"
+      chat_id_env: "TELEGRAM_CHAT_ID"
+    jobs:
+      - name: "Account Director"
+        slug: "account_director"
+        prompt_file: "ad_btl.txt"
+        emoji: "🎯"
+        description: "Account Director / Group Head (BTL, СПб)"
+
+      - name: "Account Manager"
+        slug: "account_manager"
+        prompt_file: "am_btl.txt"
+        emoji: "👔"
+        description: "Account Manager / Client Manager (BTL, СПб)"
+
+      - name: "Project Manager"
+        slug: "project_manager"
+        prompt_file: "pm_btl.txt"
+        emoji: "📋"
+        description: "Project Manager / Руководитель проектов (BTL, СПб)"
+
   outsource_agencies:
     name: "Аутсорсинг"
     description: "Поиск руководителей для аутсорсинговых компаний"

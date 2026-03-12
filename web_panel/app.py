@@ -2695,6 +2695,202 @@ async def api_btl_autosearch_stream(task_id: str, key: str = Query("")):
     return EventSourceResponse(generate())
 
 
+# ─── BTL SPb ───
+
+BTL_SPB_COMPANIES_PATH = DATA_DIR / "btl_spb_companies.json"
+
+def _load_btl_spb_companies():
+    if BTL_SPB_COMPANIES_PATH.exists():
+        return json.loads(BTL_SPB_COMPANIES_PATH.read_text())
+    return []
+
+def _save_btl_spb_companies(companies):
+    BTL_SPB_COMPANIES_PATH.write_text(json.dumps(companies, ensure_ascii=False, indent=2))
+
+_btl_spb_autosearch_tasks = {}
+
+@app.get("/autosearch/btl-spb")
+async def btl_spb_autosearch_page(request: Request, key: str = Query("")):
+    check_key(key)
+    return templates.TemplateResponse("btl_spb_autosearch.html", {"request": request, "key": key})
+
+@app.get("/api/autosearch/btl-spb/companies")
+async def api_btl_spb_companies(key: str = Query("")):
+    check_key(key)
+    return _load_btl_spb_companies()
+
+@app.post("/api/autosearch/btl-spb/companies")
+async def api_btl_spb_save(request: Request, key: str = Query("")):
+    check_key(key)
+    data = await request.json()
+    _save_btl_spb_companies(data)
+    return {"ok": True}
+
+@app.post("/api/autosearch/btl-spb/toggle")
+async def api_btl_spb_toggle(request: Request, key: str = Query("")):
+    check_key(key)
+    body = await request.json()
+    idx = body.get("idx")
+    companies = _load_btl_spb_companies()
+    if idx is None or idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    companies[idx]["enabled"] = not companies[idx].get("enabled", True)
+    _save_btl_spb_companies(companies)
+    return {"ok": True, "enabled": companies[idx]["enabled"]}
+
+@app.get("/api/autosearch/btl-spb/check")
+async def api_btl_spb_check(idx: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_btl_spb_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"count": 0, "count_24h": 0}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        r = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "2"})
+        count = r.json().get("found", 0)
+    except Exception as e:
+        logger.error(f"HH BTL SPb check error: {e}")
+        count = -1
+
+    count_24h = 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r2 = hh_request("GET", "/resumes", params={"text": hh_key, "per_page": "1", "area": "2", "date_from": date_from, "order_by": "publication_time"})
+        count_24h = r2.json().get("found", 0)
+    except:
+        pass
+
+    companies[idx]["last_count"] = count
+    companies[idx]["count_24h"] = count_24h
+    _save_btl_spb_companies(companies)
+    return {"count": count, "count_24h": count_24h}
+
+@app.get("/api/autosearch/btl-spb/preview")
+async def api_btl_spb_preview(idx: int = Query(0), page: int = Query(0), key: str = Query("")):
+    check_key(key)
+    companies = _load_btl_spb_companies()
+    if idx < 0 or idx >= len(companies):
+        raise HTTPException(400, "Invalid index")
+    comp = companies[idx]
+    hh_key = comp.get("hh_key", "")
+    if not hh_key:
+        return {"items": [], "total_24h": 0, "page": 0, "pages": 0}
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from hh_api import hh_request
+
+    try:
+        from datetime import datetime, timedelta, timezone
+        date_from = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+        r = hh_request("GET", "/resumes", params={
+            "text": hh_key, "per_page": "20", "page": str(page), "area": "2",
+            "date_from": date_from, "order_by": "publication_time"
+        })
+        data = r.json()
+        items = []
+        for item in data.get("items", []):
+            exp = item.get("experience", [])
+            last_job = f"{exp[0].get('company', '')} — {exp[0].get('position', '')}" if exp else "—"
+            salary = item.get("salary")
+            sal_str = f"{salary['amount']} {salary.get('currency', '')}" if salary else "—"
+            items.append({
+                "title": item.get("title", ""),
+                "url": item.get("alternate_url", ""),
+                "last_job": last_job,
+                "salary": sal_str,
+                "updated": item.get("updated_at", ""),
+                "area": (item.get("area") or {}).get("name", ""),
+            })
+        total = data.get("found", 0)
+        pages = data.get("pages", 1)
+        return {"items": items, "total_24h": total, "page": page, "pages": pages}
+    except Exception as e:
+        return {"items": [], "total_24h": 0, "error": str(e)}
+
+@app.get("/api/autosearch/btl-spb/stats")
+async def api_btl_spb_stats(key: str = Query("")):
+    check_key(key)
+    db_path = DATA_DIR / "btl_spb.db"
+    scored = 0
+    relevant = 0
+    if db_path.exists():
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            scored = conn.execute("SELECT COUNT(*) FROM scored_candidates").fetchone()[0]
+            relevant = conn.execute("SELECT COUNT(*) FROM scored_candidates WHERE relevant=1").fetchone()[0]
+        except:
+            pass
+        conn.close()
+    return {"scored": scored, "relevant": relevant}
+
+@app.post("/api/autosearch/btl-spb/run")
+async def api_btl_spb_run(key: str = Query("")):
+    check_key(key)
+    import uuid, threading
+    task_id = str(uuid.uuid4())[:8]
+    _btl_spb_autosearch_tasks[task_id] = {"status": "running", "messages": [], "progress": 0}
+
+    def _run_sync():
+        import subprocess
+        try:
+            _btl_spb_autosearch_tasks[task_id]["messages"].append({"stage": "progress", "message": "Запуск сканера btl_spb...", "progress": 5})
+            result = subprocess.run(
+                [sys.executable, str(Path(__file__).parent.parent / "run_multi_radar.py"), "btl_spb"],
+                capture_output=True, text=True, timeout=600,
+                cwd=str(Path(__file__).parent.parent),
+                env={**os.environ}
+            )
+            output = result.stdout + result.stderr
+            lines = [l for l in output.split('\n') if l.strip()]
+            for i, line in enumerate(lines):
+                _btl_spb_autosearch_tasks[task_id]["messages"].append({
+                    "stage": "progress",
+                    "message": line[:200],
+                    "progress": min(95, 10 + int(85 * (i + 1) / max(len(lines), 1)))
+                })
+            if result.returncode == 0:
+                _btl_spb_autosearch_tasks[task_id]["messages"].append({"stage": "done", "message": "Готово!", "progress": 100})
+            else:
+                _btl_spb_autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": f"Код выхода: {result.returncode}", "progress": 0})
+            _btl_spb_autosearch_tasks[task_id]["status"] = "done"
+        except Exception as e:
+            _btl_spb_autosearch_tasks[task_id]["messages"].append({"stage": "error", "message": str(e)[:200], "progress": 0})
+            _btl_spb_autosearch_tasks[task_id]["status"] = "error"
+
+    threading.Thread(target=_run_sync, daemon=True).start()
+    return {"task_id": task_id}
+
+@app.get("/api/autosearch/btl-spb/run/{task_id}/stream")
+async def api_btl_spb_stream(task_id: str, key: str = Query("")):
+    check_key(key)
+    async def generate():
+        sent = 0
+        while True:
+            task = _btl_spb_autosearch_tasks.get(task_id)
+            if not task:
+                yield {"data": json.dumps({"stage": "error", "message": "Task not found"})}
+                return
+            messages = task["messages"]
+            while sent < len(messages):
+                yield {"data": json.dumps(messages[sent])}
+                sent += 1
+            if task["status"] in ("done", "error"):
+                return
+            await asyncio.sleep(0.5)
+    return EventSourceResponse(generate())
+
+
 # ─── Outsource ───
 
 OUTSOURCE_COMPANIES_PATH = DATA_DIR / "outsource_companies.json"

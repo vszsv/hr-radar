@@ -20,7 +20,7 @@
         <!-- Автопоиски dropdown -->
         <div class="relative" @mouseenter="autoDD=true" @mouseleave="autoDD=false">
           <button @click="autoDD=!autoDD"
-                  class="px-3 py-2 rounded-lg transition-colors flex items-center gap-1 {% if path in ['/autosearch', '/autosearch/btl', '/outsource'] %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
+                  class="px-3 py-2 rounded-lg transition-colors flex items-center gap-1 {% if path in ['/autosearch', '/autosearch/btl', '/autosearch/btl-spb', '/outsource'] %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
             🔍 Автопоиски
             <svg class="w-3.5 h-3.5 transition-transform" :class="autoDD && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </button>
@@ -32,6 +32,9 @@
             </a>
             <a href="/autosearch/btl?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/autosearch/btl' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
               📦 BTL агентства
+            </a>
+            <a href="/autosearch/btl-spb?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/autosearch/btl-spb' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+              📦🏛 BTL — СПб
             </a>
             <a href="/outsource?key={{ nav_key }}" class="flex items-center gap-2 px-4 py-2 text-sm transition-colors {% if path == '/outsource' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
               🏢 Аутсорсинг
@@ -81,6 +84,9 @@
       </a>
       <a href="/autosearch/btl?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/autosearch/btl' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
         📦 BTL агентства
+      </a>
+      <a href="/autosearch/btl-spb?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/autosearch/btl-spb' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+        📦🏛 BTL — СПб
       </a>
       <a href="/outsource?key={{ nav_key }}" class="block px-6 py-2 rounded-lg text-sm {% if path == '/outsource' %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
         🏢 Аутсорсинг

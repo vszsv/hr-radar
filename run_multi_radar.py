@@ -46,6 +46,7 @@ class ProfileConfig:
     db_path: Path
     source: str = "imap"  # "imap" or "hh_api"
     hh_companies_file: str = ""
+    hh_area: str = "113"  # HH area code: 113=Russia, 2=SPb, 1=Moscow
 
 
 def load_config() -> Dict[str, Any]:
@@ -146,6 +147,7 @@ def parse_profile_config(profile_name: str, profile_data: Dict, common: Dict) ->
         db_path=db_path,
         source=source,
         hh_companies_file=profile_data.get('hh_companies_file', ''),
+        hh_area=str(profile_data.get('hh_area', '113')),
     )
 
 
@@ -305,7 +307,7 @@ def fetch_candidates_from_hh_api(profile: ProfileConfig) -> List[Dict]:
                         "page": str(page),
                         "order_by": "publication_time",
                         "date_from": date_from,
-                        "area": "113",  # Russia
+                        "area": profile.hh_area,  # 113=Russia, 2=SPb, 1=Moscow
                     }
                     if use_industry_filter:
                         params["industry"] = industry_id
