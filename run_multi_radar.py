@@ -565,8 +565,8 @@ def fallback_score(candidate: Dict, job: Optional[JobConfig] = None) -> Dict:
     confidence = min(score * 0.15, 0.8)  # Максимум 0.8 для fallback
     
     return {
-        "relevant": confidence > 0.3,
-        "fit_type": "target" if confidence > 0.6 else "near_target" if confidence > 0.3 else "not_fit",
+        "relevant": confidence > 0.5,
+        "fit_type": "target" if confidence > 0.6 else "near_target" if confidence > 0.5 else "not_fit",
         "confidence": confidence,
         "reason": f"Fallback scoring: {score} keywords matched",
         "job_slug": job.slug if job else "unknown",
@@ -668,9 +668,10 @@ def send_telegram_report(profile: ProfileConfig, job_results: Dict[str, List[Dic
         targets = [c for c in relevant_candidates if c.get('fit_type') == 'target' and c.get('confidence', 0) >= 0.75]
         near_targets = [c for c in relevant_candidates if c not in targets]
         
-        send_job_candidates(profile, job, targets, "🎯 Целевые кандидаты")
-        if near_targets:
-            send_job_candidates(profile, job, near_targets, "🟡 Близкие к целевым")
+        # Детальные списки кандидатов не отправляем в Telegram — 
+        # всё доступно в веб-панели
+        # send_job_candidates(profile, job, targets[:15], "🎯 Целевые кандидаты")
+        # send_job_candidates(profile, job, near_targets[:10], "🟡 Близкие к целевым")
 
 
 def send_job_candidates(profile: ProfileConfig, job: JobConfig, candidates: List[Dict], title: str):
@@ -899,6 +900,9 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
             continue
         
         relevant = [c for c in job_results.get(job.slug, []) if c.get("relevant", False)]
+        # Sort by confidence and limit to top-30 for deep scoring
+        relevant.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+        relevant = relevant[:30]
         if not relevant:
             print(f"⚡ Autoflow [{job.name}]: нет релевантных, пропускаю")
             continue
