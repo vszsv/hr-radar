@@ -975,7 +975,7 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                 print(f"  ⚠️ Failed to save autoflow log: {e}")
             
             summary = (
-                f"⚡ <b>Autoflow: {job.emoji} {job.name}</b>\n\n"
+                f"⚡ <b>Autoflow [{profile.name}]: {job.emoji} {job.name}</b>\n\n"
                 f"📋 Первичный отбор: {len(relevant)} релевантных\n"
                 f"🤖 Глубокий скоринг: ✅{approved_count} 👁{reviewed_count} ❌{rejected_count}\n"
                 f"📤 Импорт в FW: {imported} новых, {dupes} дубликатов"

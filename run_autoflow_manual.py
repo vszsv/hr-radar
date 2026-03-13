@@ -81,7 +81,7 @@ for profile_name in ['event_agencies', 'btl_agencies']:
             rejected_count = len([r for r in deep_results if 0 < r.get("score", 0) < t_reject])
             
             summary = (
-                f"⚡ <b>Autoflow: {job.emoji} {job.name}</b>\n\n"
+                f"⚡ <b>Autoflow [{profile.name}]: {job.emoji} {job.name}</b>\n\n"
                 f"📋 Первичный отбор: {len(links)} релевантных\n"
                 f"🤖 Глубокий скоринг: ✅{approved_count} 👁{reviewed_count} ❌{rejected_count}\n"
                 f"📤 Импорт в FW: {imported} новых, {dupes} дубликатов"
