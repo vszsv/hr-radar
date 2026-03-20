@@ -51,7 +51,7 @@
         <!-- Интервью -->
         <a href="/interview?key={{ nav_key }}"
            class="px-3 py-2 rounded-lg transition-colors {% if path == '/interview' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-600 hover:bg-gray-50 hover:text-gray-800{% endif %}">
-          🎬 Оценка видеоинтервью
+          🎬 Оценка интервью
         </a>
 
         <!-- Настройки -->
@@ -98,7 +98,7 @@
       </a>
 
       <a href="/interview?key={{ nav_key }}" class="block px-3 py-2 rounded-lg text-sm {% if path == '/interview' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
-        🎬 Оценка видеоинтервью
+        🎬 Оценка интервью
       </a>
 
       <a href="/?key={{ nav_key }}&tab=settings" class="block px-3 py-2 rounded-lg text-sm {% if path == '/' and request.query_params.get('tab') == 'settings' %}bg-blue-50 text-blue-700 font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">

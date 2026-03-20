@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HR Radar — Оценка видеоинтервью</title>
+<title>HR Radar — Оценка интервью</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 <style>[x-cloak]{display:none!important}</style>
@@ -15,7 +15,7 @@
 <!-- Page header -->
 <div class="bg-white border-b">
   <div class="max-w-4xl mx-auto px-4 py-3">
-    <h2 class="text-base font-semibold text-gray-700">🎬 Оценка видеоинтервью</h2>
+    <h2 class="text-base font-semibold text-gray-700">🎬 Оценка интервью</h2>
   </div>
 </div>
 
@@ -364,48 +364,87 @@
       </select>
     </div>
 
-    <!-- Video source -->
+    <!-- Input mode selector -->
     <div class="bg-white rounded-xl shadow-sm p-4">
-      <label class="block text-sm font-medium text-gray-700 mb-2">🎥 Видео интервью</label>
-      <template x-if="uploads.videos.length > 0">
-        <div class="mb-3">
-          <select x-model="existingVideo" @change="if(existingVideo) { videoFile=null; videoUrl=''; }" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-            <option value="">Загрузить новое...</option>
-            <template x-for="f in uploads.videos" :key="f.path">
-              <option :value="f.path" x-text="f.name + ' (' + formatFileSize(f.size) + ', ' + f.date + ')'"></option>
-            </template>
-          </select>
-        </div>
-      </template>
-      <div x-show="!existingVideo">
-      <label class="block text-sm font-medium text-gray-600 mb-2">🔗 Ссылка на видео</label>
-      <input type="url" x-model="videoUrl" placeholder="https://cloud.mail.ru/public/... или прямая ссылка"
-        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-3">📥 Источник интервью</label>
+      <div class="flex gap-2 mb-4">
+        <button @click="inputMode='video'" class="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition"
+          :class="inputMode==='video' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🎥 Видео</button>
+        <button @click="inputMode='audio'" class="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition"
+          :class="inputMode==='audio' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">🎵 Аудио</button>
+        <button @click="inputMode='text'" class="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition"
+          :class="inputMode==='text' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">📝 Текст</button>
+      </div>
 
-      <div class="text-center text-xs text-gray-400 mb-3">или</div>
-
-      <!-- File upload with drag and drop -->
-      <div
-        @dragover.prevent="dragOver = true"
-        @dragleave.prevent="dragOver = false"
-        @drop.prevent="handleDrop($event)"
-        :class="dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
-        class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors"
-        @click="$refs.fileInput.click()"
-      >
-        <input type="file" x-ref="fileInput" @change="handleFileSelect($event)" accept="video/*" class="hidden">
-        <div x-show="!videoFile" class="text-gray-500">
-          <div class="text-3xl mb-2">📁</div>
-          <div class="text-sm">Перетащите видео сюда или нажмите для выбора</div>
-          <div class="text-xs text-gray-400 mt-1">MP4, MOV, AVI, MKV</div>
-        </div>
-        <div x-show="videoFile" class="text-green-600">
-          <div class="text-3xl mb-2">✅</div>
-          <div class="text-sm font-medium" x-text="videoFile?.name"></div>
-          <div class="text-xs text-gray-400" x-text="videoFile ? formatFileSize(videoFile.size) : ''"></div>
-          <button @click.stop="videoFile = null; $refs.fileInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+      <!-- VIDEO mode -->
+      <div x-show="inputMode==='video'">
+        <template x-if="uploads.videos.length > 0">
+          <div class="mb-3">
+            <select x-model="existingVideo" @change="if(existingVideo) { videoFile=null; videoUrl=''; }" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Загрузить новое...</option>
+              <template x-for="f in uploads.videos" :key="f.path">
+                <option :value="f.path" x-text="f.name + ' (' + formatFileSize(f.size) + ', ' + f.date + ')'"></option>
+              </template>
+            </select>
+          </div>
+        </template>
+        <div x-show="!existingVideo">
+          <label class="block text-sm font-medium text-gray-600 mb-2">🔗 Ссылка на видео</label>
+          <input type="url" x-model="videoUrl" placeholder="https://cloud.mail.ru/public/... или прямая ссылка"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3">
+          <div class="text-center text-xs text-gray-400 mb-3">или</div>
+          <div
+            @dragover.prevent="dragOver = true"
+            @dragleave.prevent="dragOver = false"
+            @drop.prevent="handleDrop($event)"
+            :class="dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
+            class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors"
+            @click="$refs.fileInput.click()">
+            <input type="file" x-ref="fileInput" @change="handleFileSelect($event)" accept="video/*" class="hidden">
+            <div x-show="!videoFile" class="text-gray-500">
+              <div class="text-3xl mb-2">📁</div>
+              <div class="text-sm">Перетащите видео сюда или нажмите для выбора</div>
+              <div class="text-xs text-gray-400 mt-1">MP4, MOV, AVI, MKV</div>
+            </div>
+            <div x-show="videoFile" class="text-green-600">
+              <div class="text-3xl mb-2">✅</div>
+              <div class="text-sm font-medium" x-text="videoFile?.name"></div>
+              <div class="text-xs text-gray-400" x-text="videoFile ? formatFileSize(videoFile.size) : ''"></div>
+              <button @click.stop="videoFile = null; $refs.fileInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+            </div>
+          </div>
         </div>
       </div>
+
+      <!-- AUDIO mode -->
+      <div x-show="inputMode==='audio'">
+        <div
+          @dragover.prevent="audioDragOver = true"
+          @dragleave.prevent="audioDragOver = false"
+          @drop.prevent="audioDragOver=false; const f=$event.dataTransfer.files; if(f.length>0) audioFile=f[0]"
+          :class="audioDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50'"
+          class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors"
+          @click="$refs.audioInput.click()">
+          <input type="file" x-ref="audioInput" @change="audioFile=$event.target.files[0]" accept="audio/*" class="hidden">
+          <div x-show="!audioFile" class="text-gray-500">
+            <div class="text-3xl mb-2">🎵</div>
+            <div class="text-sm">Перетащите аудио сюда или нажмите для выбора</div>
+            <div class="text-xs text-gray-400 mt-1">MP3, WAV, OGG, M4A, FLAC</div>
+          </div>
+          <div x-show="audioFile" class="text-green-600">
+            <div class="text-3xl mb-2">✅</div>
+            <div class="text-sm font-medium" x-text="audioFile?.name"></div>
+            <div class="text-xs text-gray-400" x-text="audioFile ? formatFileSize(audioFile.size) : ''"></div>
+            <button @click.stop="audioFile = null; $refs.audioInput.value = ''" class="text-red-500 text-xs mt-1 hover:underline">Удалить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEXT mode -->
+      <div x-show="inputMode==='text'">
+        <textarea x-model="transcriptText" rows="10" placeholder="Вставьте текст транскрипции интервью..."
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"></textarea>
+        <div class="text-xs text-gray-400 mt-1">Вставьте готовую транскрипцию. Этапы скачивания, извлечения аудио и транскрибации будут пропущены.</div>
       </div>
     </div>
 
@@ -507,8 +546,8 @@
     <!-- Submit -->
     <button
       @click="startAnalysis()"
-      :disabled="(!videoUrl && !videoFile && !existingVideo) || !vacancy"
-      :class="(!videoUrl && !videoFile && !existingVideo) || !vacancy ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
+      :disabled="!hasInput || !vacancy"
+      :class="!hasInput || !vacancy ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'"
       class="w-full text-white font-medium py-3 rounded-xl transition-colors text-sm shadow-sm"
     >
       🚀 Анализировать интервью
@@ -754,8 +793,12 @@ function interviewApp() {
     key,
     prompts: [],
     vacancy: '',
+    inputMode: 'video',
     videoUrl: '',
     videoFile: null,
+    audioFile: null,
+    audioDragOver: false,
+    transcriptText: '',
     vacancyFile: null,
     vacancyDragOver: false,
     resumeFile: null,
@@ -775,12 +818,14 @@ function interviewApp() {
     showTranscript: false,
     formError: '',
     errorMessage: '',
-    steps: [
-      { id: 'downloading', icon: '📥', label: 'Скачивание видео', status: 'pending', progress: 0 },
-      { id: 'extracting_audio', icon: '🎵', label: 'Извлечение аудио', status: 'pending', progress: 0 },
-      { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
-      { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
-    ],
+    steps: [],
+
+    get hasInput() {
+      if (this.inputMode === 'video') return !!(this.videoUrl || this.videoFile || this.existingVideo);
+      if (this.inputMode === 'audio') return !!this.audioFile;
+      if (this.inputMode === 'text') return !!(this.transcriptText && this.transcriptText.trim().length > 50);
+      return false;
+    },
 
     get modelLabel() {
       return this.model === 'claude-opus-4-6' ? 'Claude Opus 4.6' : 'Claude Sonnet 4.6';
@@ -867,27 +912,30 @@ function interviewApp() {
         this.formError = 'Выберите вакансию';
         return;
       }
-      if (!this.videoUrl && !this.videoFile && !this.existingVideo) {
-        this.formError = 'Укажите ссылку или загрузите файл';
+      if (!this.hasInput) {
+        this.formError = 'Укажите источник интервью';
         return;
       }
 
       this.analyzing = true;
       this.resetSteps();
 
-      // If file uploaded, skip download step
-      if (this.videoFile && !this.videoUrl) {
-        this.steps[0].status = 'done';
-        this.steps[0].label = 'Файл загружен';
-      }
-
       try {
         const formData = new FormData();
         formData.append('vacancy', this.vacancy);
         formData.append('model', this.model);
-        if (this.videoUrl) formData.append('video_url', this.videoUrl);
-        if (this.videoFile) formData.append('video_file', this.videoFile);
-        if (this.existingVideo) formData.append('existing_video', this.existingVideo);
+        formData.append('input_mode', this.inputMode);
+
+        if (this.inputMode === 'video') {
+          if (this.videoUrl) formData.append('video_url', this.videoUrl);
+          if (this.videoFile) formData.append('video_file', this.videoFile);
+          if (this.existingVideo) formData.append('existing_video', this.existingVideo);
+        } else if (this.inputMode === 'audio') {
+          if (this.audioFile) formData.append('audio_file', this.audioFile);
+        } else if (this.inputMode === 'text') {
+          formData.append('transcript_text', this.transcriptText);
+        }
+
         if (this.vacancyFile) formData.append('vacancy_pdf', this.vacancyFile);
         if (this.existingVacancy) formData.append('existing_vacancy', this.existingVacancy);
         if (this.resumeFile) formData.append('resume_pdf', this.resumeFile);
@@ -965,12 +1013,27 @@ function interviewApp() {
     },
 
     resetSteps() {
-      this.steps = [
-        { id: 'downloading', icon: '📥', label: 'Скачивание видео', status: 'pending', progress: 0 },
-        { id: 'extracting_audio', icon: '🎵', label: 'Извлечение аудио', status: 'pending', progress: 0 },
-        { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
-        { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
-      ];
+      if (this.inputMode === 'text') {
+        this.steps = [
+          { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
+        ];
+      } else if (this.inputMode === 'audio') {
+        this.steps = [
+          { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
+          { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
+        ];
+      } else {
+        this.steps = [
+          { id: 'downloading', icon: '📥', label: 'Скачивание видео', status: 'pending', progress: 0 },
+          { id: 'extracting_audio', icon: '🎵', label: 'Извлечение аудио', status: 'pending', progress: 0 },
+          { id: 'transcribing', icon: '📝', label: 'Транскрибация', status: 'pending', progress: 0 },
+          { id: 'analyzing', icon: '🤖', label: 'AI-анализ', status: 'pending', progress: 0 },
+        ];
+        if (this.videoFile && !this.videoUrl) {
+          this.steps[0].status = 'done';
+          this.steps[0].label = 'Файл загружен';
+        }
+      }
     },
 
     resetForm() {
@@ -981,6 +1044,8 @@ function interviewApp() {
       this.formError = '';
       this.videoUrl = '';
       this.videoFile = null;
+      this.audioFile = null;
+      this.transcriptText = '';
       this.resetSteps();
     },
 

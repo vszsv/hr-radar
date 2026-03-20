@@ -1726,52 +1726,60 @@ p {{ margin: 4px 0; }}
     return pdf_path
 
 
-def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, model: str, video_url: str = "", vacancy_pdf_path: str = "", resume_pdf_path: str = ""):
+def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, model: str, video_url: str = "", vacancy_pdf_path: str = "", resume_pdf_path: str = "", input_mode: str = "video", transcript_text: str = "", audio_path_direct: str = ""):
     """Run the full interview analysis pipeline in a background thread."""
     task = _interview_tasks[task_id]
     work_dir = INTERVIEWS_DIR / task_id
     work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Step 1: Download if needed
-        if not video_path:
-            task.update({"stage": "downloading", "progress": 10})
-            # Generate a readable filename from URL
-            import hashlib as _hl
-            url_hash = _hl.md5(video_url.encode()).hexdigest()[:8]
-            url_name = video_url.rstrip('/').split('/')[-1].split('?')[0]
-            if not url_name or len(url_name) > 60:
-                url_name = f"video_{url_hash}"
-            if not any(url_name.lower().endswith(ext) for ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm')):
-                url_name += '.mp4'
-            # Save to persistent uploads
-            persist_path = INTERVIEW_UPLOADS_DIR / "videos" / url_name
-            dest = str(work_dir / "video.mp4")
-            if "cloud.mail.ru" in video_url:
-                task.update({"stage": "downloading", "progress": 30})
-                _download_from_cloud_mail(video_url, dest)
-            else:
-                task.update({"stage": "downloading", "progress": 30})
-                _download_direct(video_url, dest)
-            # Copy to persistent storage for reuse
-            try:
-                import shutil
-                shutil.copy2(dest, str(persist_path))
-            except:
-                pass
-            video_path = dest
-            task.update({"stage": "downloading", "progress": 100})
+        # TEXT mode: skip everything, go straight to analysis
+        if input_mode == "text" and transcript_text.strip():
+            transcript = transcript_text.strip()
+            task.update({"stage": "analyzing", "progress": 10})
+        # AUDIO mode: skip download & extract, go to transcription
+        elif input_mode == "audio" and audio_path_direct:
+            task.update({"stage": "transcribing", "progress": 10})
+            transcript = _transcribe_audio(audio_path_direct)
+            task.update({"stage": "transcribing", "progress": 80})
+        else:
+            # VIDEO mode (original flow)
+            # Step 1: Download if needed
+            if not video_path:
+                task.update({"stage": "downloading", "progress": 10})
+                import hashlib as _hl
+                url_hash = _hl.md5(video_url.encode()).hexdigest()[:8]
+                url_name = video_url.rstrip('/').split('/')[-1].split('?')[0]
+                if not url_name or len(url_name) > 60:
+                    url_name = f"video_{url_hash}"
+                if not any(url_name.lower().endswith(ext) for ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm')):
+                    url_name += '.mp4'
+                persist_path = INTERVIEW_UPLOADS_DIR / "videos" / url_name
+                dest = str(work_dir / "video.mp4")
+                if "cloud.mail.ru" in video_url:
+                    task.update({"stage": "downloading", "progress": 30})
+                    _download_from_cloud_mail(video_url, dest)
+                else:
+                    task.update({"stage": "downloading", "progress": 30})
+                    _download_direct(video_url, dest)
+                try:
+                    import shutil
+                    shutil.copy2(dest, str(persist_path))
+                except:
+                    pass
+                video_path = dest
+                task.update({"stage": "downloading", "progress": 100})
 
-        # Step 2: Extract audio
-        task.update({"stage": "extracting_audio", "progress": 10})
-        audio_path = str(work_dir / "audio.mp3")
-        _extract_audio(video_path, audio_path)
-        task.update({"stage": "extracting_audio", "progress": 100})
+            # Step 2: Extract audio
+            task.update({"stage": "extracting_audio", "progress": 10})
+            audio_path = str(work_dir / "audio.mp3")
+            _extract_audio(video_path, audio_path)
+            task.update({"stage": "extracting_audio", "progress": 100})
 
-        # Step 3: Transcribe
-        task.update({"stage": "transcribing", "progress": 10})
-        transcript = _transcribe_audio(audio_path)
-        task.update({"stage": "transcribing", "progress": 80})
+            # Step 3: Transcribe
+            task.update({"stage": "transcribing", "progress": 10})
+            transcript = _transcribe_audio(audio_path)
+            task.update({"stage": "transcribing", "progress": 80})
 
         # Step 3.5: Identify speakers (before analysis to avoid bias)
         if "Спикер" in transcript:
@@ -1914,17 +1922,28 @@ async def api_interview_analyze(
     video_url: str = Form(""),
     vacancy: str = Form(""),
     model: str = Form("claude-sonnet-4-20250514"),
+    input_mode: str = Form("video"),
+    transcript_text: str = Form(""),
     video_file: UploadFile = File(None),
+    audio_file: UploadFile = File(None),
     vacancy_pdf: UploadFile = File(None),
     resume_pdf: UploadFile = File(None),
-    existing_vacancy: str = Form(""),   # path like "vacancies/filename.pdf"
-    existing_resume: str = Form(""),    # path like "resumes/filename.pdf"
-    existing_video: str = Form("")      # path like "videos/filename.mp4"
+    existing_vacancy: str = Form(""),
+    existing_resume: str = Form(""),
+    existing_video: str = Form("")
 ):
     check_key(key)
 
-    if not video_url and not video_file and not existing_video:
-        return JSONResponse({"error": "Нужна ссылка на видео или файл"}, status_code=400)
+    if input_mode == "text":
+        if not transcript_text or len(transcript_text.strip()) < 50:
+            return JSONResponse({"error": "Текст транскрипции слишком короткий (минимум 50 символов)"}, status_code=400)
+    elif input_mode == "audio":
+        if not audio_file or not audio_file.filename:
+            return JSONResponse({"error": "Загрузите аудиофайл"}, status_code=400)
+    else:  # video
+        if not video_url and not video_file and not existing_video:
+            return JSONResponse({"error": "Нужна ссылка на видео или файл"}, status_code=400)
+
     if not vacancy:
         return JSONResponse({"error": "Выберите вакансию"}, status_code=400)
 
@@ -1939,19 +1958,29 @@ async def api_interview_analyze(
     _interview_tasks[task_id] = {"stage": "queued", "progress": 0}
 
     video_path = ""
-    # Use existing video if selected
-    if existing_video and not video_file:
-        ep = INTERVIEW_UPLOADS_DIR / existing_video
-        if ep.exists():
-            video_path = str(ep)
-    elif video_file and video_file.filename:
-        # Save uploaded file to persistent uploads
-        safe_name = video_file.filename.replace("/", "_").replace("..", "_")
-        persist_path = INTERVIEW_UPLOADS_DIR / "videos" / safe_name
-        content = await video_file.read()
-        with open(persist_path, "wb") as f:
-            f.write(content)
-        video_path = str(persist_path)
+    audio_path_direct = ""
+
+    if input_mode == "video":
+        # Use existing video if selected
+        if existing_video and not video_file:
+            ep = INTERVIEW_UPLOADS_DIR / existing_video
+            if ep.exists():
+                video_path = str(ep)
+        elif video_file and video_file.filename:
+            safe_name = video_file.filename.replace("/", "_").replace("..", "_")
+            persist_path = INTERVIEW_UPLOADS_DIR / "videos" / safe_name
+            content = await video_file.read()
+            with open(persist_path, "wb") as f:
+                f.write(content)
+            video_path = str(persist_path)
+    elif input_mode == "audio":
+        if audio_file and audio_file.filename:
+            safe_name = audio_file.filename.replace("/", "_").replace("..", "_")
+            persist_path = INTERVIEW_UPLOADS_DIR / "videos" / safe_name  # reuse videos dir for audio
+            content = await audio_file.read()
+            with open(persist_path, "wb") as f:
+                f.write(content)
+            audio_path_direct = str(persist_path)
 
     # Vacancy PDF — existing or new upload
     vacancy_pdf_path = ""
@@ -1985,6 +2014,7 @@ async def api_interview_analyze(
     threading.Thread(
         target=_run_interview_pipeline,
         args=(task_id, video_path, vacancy, model, video_url, vacancy_pdf_path, resume_pdf_path),
+        kwargs={"input_mode": input_mode, "transcript_text": transcript_text, "audio_path_direct": audio_path_direct},
         daemon=True
     ).start()
 
