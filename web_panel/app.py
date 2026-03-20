@@ -1541,7 +1541,10 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
     """Analyze interview transcript using Claude."""
     client = anthropic.Anthropic()  # uses ANTHROPIC_API_KEY env
 
-    vacancy_section = f"Промпт вакансии:\n{vacancy_prompt}"
+    # Strip scoring JSON format from vacancy prompt (it conflicts with interview analysis format)
+    import re
+    clean_prompt = re.split(r'(?:Ответь\s+СТРОГО|Формат\s+ответа|Ответ\s+в\s+формате)\s+JSON', vacancy_prompt, flags=re.IGNORECASE)[0].strip()
+    vacancy_section = f"Описание вакансии:\n{clean_prompt}"
     if vacancy_pdf_text:
         vacancy_section += f"\n\nПодробное описание вакансии (из PDF):\n{vacancy_pdf_text}"
     
@@ -1606,9 +1609,29 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
 
     text = response.content[0].text.strip()
     # Try to extract JSON from response
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return json.loads(text)
+    if "```json" in text:
+        text = text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
+    elif "```" in text:
+        text = text.split("```", 1)[1].rsplit("```", 1)[0].strip()
+    # Find the outermost JSON object
+    start = text.find("{")
+    if start >= 0:
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            if ch == "{": depth += 1
+            elif ch == "}": depth -= 1
+            if depth == 0:
+                text = text[start:i+1]
+                break
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        logger.error(f"Interview analysis JSON parse error: {e}\nRaw text (first 500): {text[:500]}")
+        # Try to fix common issues
+        import re
+        text = re.sub(r',\s*}', '}', text)
+        text = re.sub(r',\s*]', ']', text)
+        return json.loads(text)
 
 
 def _generate_interview_pdf(task_id: str, analysis: dict, vacancy: str, model: str) -> str:
@@ -1783,10 +1806,14 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
 
         # Step 3.5: Identify speakers (before analysis to avoid bias)
         if "Спикер" in transcript:
-            import anthropic as _anth
-            _client = _anth.Anthropic()
-            transcript = _identify_speakers(transcript, _client)
-        task.update({"stage": "transcribing", "progress": 100})
+            try:
+                import anthropic as _anth
+                _client = _anth.Anthropic()
+                transcript = _identify_speakers(transcript, _client)
+            except Exception as e:
+                logger.warning(f"Speaker identification failed, continuing without: {e}")
+        if input_mode != "text":
+            task.update({"stage": "transcribing", "progress": 100})
 
         # Step 4: Analyze
         task.update({"stage": "analyzing", "progress": 10})
@@ -1828,6 +1855,8 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
         task.update({"stage": "done", "result": analysis, "transcript": transcript, "task_id": task_id})
 
     except Exception as e:
+        import traceback
+        logger.error(f"Interview pipeline error: {e}\n{traceback.format_exc()}")
         task.update({"stage": "error", "message": str(e)})
     finally:
         # Cleanup work dir (keep result JSON)
