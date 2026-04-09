@@ -34,6 +34,7 @@
           <div class="p-4 cursor-pointer" @click="open=!open">
             <div class="flex items-start justify-between gap-3">
               <div class="flex-1 min-w-0">
+                <div class="text-sm font-bold text-gray-900 mb-0.5" x-show="h.candidate_name" x-text="h.candidate_name"></div>
                 <div class="text-sm font-medium text-gray-800 mb-1" x-text="h.summary"></div>
                 <div class="flex flex-wrap gap-2 text-[11px] text-gray-500 mb-2">
                   <span x-text="'📅 ' + (h.created||'').substring(0,10)"></span>
@@ -176,13 +177,21 @@
 
             <!-- ═══ STAGE 2: Personal Interview ═══ -->
             <div class="border-t border-gray-200 pt-3 mt-3" x-data="{
-              s2form:false, s2running:false, s2status:'', s2result:null, s2file:null, s2url:'', s2model:'claude-sonnet-4-6', s2transcript:'', showS2transcript:false, s2section:'',
+              s2form:false, s2running:false, s2status:'', s2result:null, s2file:null, s2url:'', s2model:'claude-sonnet-4-6', s2transcript:'', showS2transcript:false, s2section:'', s2inputMode:'audio', s2text:'',
               async startStage2(interviewId) {
-                if (!this.s2file && !this.s2url) return;
+                if (this.s2inputMode === 'text') {
+                  if (!this.s2text.trim() || this.s2text.trim().length < 50) return;
+                } else {
+                  if (!this.s2file && !this.s2url) return;
+                }
                 this.s2running = true; this.s2form = false; this.s2status = 'Запуск...';
                 const formData = new FormData();
-                if (this.s2file) formData.append('audio_file', this.s2file);
-                formData.append('audio_url', this.s2url || '');
+                if (this.s2inputMode === 'text') {
+                  formData.append('transcript_text', this.s2text);
+                } else {
+                  if (this.s2file) formData.append('audio_file', this.s2file);
+                  formData.append('audio_url', this.s2url || '');
+                }
                 formData.append('model', this.s2model);
                 const key = new URLSearchParams(window.location.search).get('key') || '';
                 try {
@@ -317,17 +326,34 @@
 
                 <!-- Upload form -->
                 <div x-show="s2form && !s2running" x-transition class="bg-amber-50 rounded-lg p-3 space-y-3 mt-2">
-                  <div class="text-[11px] font-semibold text-amber-700">Загрузите аудио/видео личного интервью</div>
-                  <input type="file" accept="audio/*,video/*" @change="s2file=$event.target.files[0]"
-                    class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2 bg-white">
-                  <div class="text-[10px] text-gray-500">Или ссылка на видео:</div>
-                  <input x-model="s2url" placeholder="https://cloud.mail.ru/..." class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2">
+                  <div class="text-[11px] font-semibold text-amber-700">Добавить личное интервью</div>
+                  <!-- Input mode switcher -->
+                  <div class="flex gap-1">
+                    <button @click="s2inputMode='audio'" class="px-3 py-1 rounded-lg text-xs font-medium transition"
+                      :class="s2inputMode==='audio' ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 border border-amber-200'">🎵 Аудио/Видео</button>
+                    <button @click="s2inputMode='text'" class="px-3 py-1 rounded-lg text-xs font-medium transition"
+                      :class="s2inputMode==='text' ? 'bg-amber-600 text-white' : 'bg-white text-amber-700 border border-amber-200'">📝 Текст транскрипции</button>
+                  </div>
+                  <!-- Audio/video inputs -->
+                  <div x-show="s2inputMode==='audio'" class="space-y-2">
+                    <input type="file" accept="audio/*,video/*" @change="s2file=$event.target.files[0]"
+                      class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2 bg-white">
+                    <div class="text-[10px] text-gray-500">Или ссылка на видео:</div>
+                    <input x-model="s2url" placeholder="https://cloud.mail.ru/..." class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2">
+                  </div>
+                  <!-- Transcript text input -->
+                  <div x-show="s2inputMode==='text'" class="space-y-2">
+                    <textarea x-model="s2text" rows="8" placeholder="Вставьте текст транскрипции интервью..."
+                      class="w-full text-sm border border-amber-200 rounded-lg px-3 py-2 bg-white resize-y"></textarea>
+                    <div class="text-[10px] text-gray-400">Минимум 50 символов</div>
+                  </div>
                   <div class="flex items-center gap-3">
                     <select x-model="s2model" class="text-xs border rounded-lg px-2 py-1.5">
                       <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
                       <option value="claude-opus-4-6">Claude Opus 4.6</option>
                     </select>
-                    <button @click="startStage2(h.id)" :disabled="!s2file && !s2url"
+                    <button @click="startStage2(h.id)"
+                      :disabled="s2inputMode==='text' ? (!s2text.trim() || s2text.trim().length < 50) : (!s2file && !s2url)"
                       class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
                       🚀 Анализировать
                     </button>

@@ -1216,6 +1216,7 @@ async def zoom_webhook_post(request: Request):
         return {"error": str(e)}, 500
 
 # ─── Interview Analysis ───
+import re
 import uuid
 import threading
 import subprocess
@@ -1840,6 +1841,7 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
             "model": model,
             "transcript": transcript,
             "analysis": analysis,
+            "resume_pdf": os.path.basename(resume_pdf_path) if resume_pdf_path else "",
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         (INTERVIEWS_DIR / f"{task_id}.json").write_text(
@@ -1897,8 +1899,22 @@ async def api_interview_history(key: str = Query("")):
                 vf = a.get('vacancy_fit', {})
                 overall = a.get('overall', {})
                 has_pdf = (INTERVIEWS_DIR / f"{f.stem}.pdf").exists()
+                # Extract candidate name from resume filename or candidate_name field
+                candidate_name = data.get('candidate_name', '')
+                if not candidate_name:
+                    resume_fn = data.get('resume_pdf', '')
+                    if resume_fn:
+                        # Filename like "Захаров_Кирилл_Владимирович.pdf" or "СV__Буханцова Марина (1).pdf"
+                        name_part = os.path.splitext(resume_fn)[0]  # remove .pdf
+                        name_part = re.sub(r'\(\d+\)', '', name_part).strip()  # remove (1) etc
+                        # Remove CV/СV prefix (mixed cyrillic/latin)
+                        name_part = re.sub(r'^[CСcс][Vv][\s_]*', '', name_part)
+                        parts = re.findall(r'[А-ЯЁ][а-яё]+', name_part)
+                        # Filter out patronymics for display, keep surname + first name
+                        candidate_name = ' '.join(parts[:2]) if parts else ''
                 results.append({
                     'id': f.stem,
+                    'candidate_name': candidate_name,
                     'created': data.get('created_at', ''),
                     'video_url': data.get('video_url', ''),
                     'vacancy': data.get('vacancy', ''),
@@ -2199,7 +2215,7 @@ def _analyze_stage2(transcript: str, stage1_data: dict, model: str) -> dict:
     return json.loads(text)
 
 
-def _run_stage2_pipeline(task_id: str, interview_id: str, audio_path: str, model: str):
+def _run_stage2_pipeline(task_id: str, interview_id: str, audio_path: str, model: str, transcript_text: str = ""):
     """Run Stage 2 analysis pipeline."""
     task = _stage2_tasks[task_id]
     work_dir = INTERVIEWS_DIR / f"stage2_{task_id}"
@@ -2212,26 +2228,32 @@ def _run_stage2_pipeline(task_id: str, interview_id: str, audio_path: str, model
             raise Exception(f"Stage 1 data not found: {interview_id}")
         stage1_data = json.loads(s1_path.read_text(encoding='utf-8'))
 
-        # Step 1: Extract audio if video
-        task.update({"stage": "extracting_audio", "progress": 10})
-        ext = Path(audio_path).suffix.lower()
-        if ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm'):
-            extracted = str(work_dir / "audio.mp3")
-            _extract_audio(audio_path, extracted)
-            audio_path = extracted
-        task.update({"stage": "extracting_audio", "progress": 100})
+        if transcript_text.strip():
+            # Skip audio extraction and transcription — use provided text
+            task.update({"stage": "extracting_audio", "progress": 100})
+            task.update({"stage": "transcribing", "progress": 100})
+            transcript = transcript_text.strip()
+        else:
+            # Step 1: Extract audio if video
+            task.update({"stage": "extracting_audio", "progress": 10})
+            ext = Path(audio_path).suffix.lower()
+            if ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm'):
+                extracted = str(work_dir / "audio.mp3")
+                _extract_audio(audio_path, extracted)
+                audio_path = extracted
+            task.update({"stage": "extracting_audio", "progress": 100})
 
-        # Step 2: Transcribe
-        task.update({"stage": "transcribing", "progress": 10})
-        transcript = _transcribe_audio(audio_path)
-        task.update({"stage": "transcribing", "progress": 80})
+            # Step 2: Transcribe
+            task.update({"stage": "transcribing", "progress": 10})
+            transcript = _transcribe_audio(audio_path)
+            task.update({"stage": "transcribing", "progress": 80})
 
-        # Identify speakers
-        if "Спикер" in transcript:
-            import anthropic as _anth
-            _client = _anth.Anthropic()
-            transcript = _identify_speakers(transcript, _client)
-        task.update({"stage": "transcribing", "progress": 100})
+            # Identify speakers
+            if "Спикер" in transcript:
+                import anthropic as _anth
+                _client = _anth.Anthropic()
+                transcript = _identify_speakers(transcript, _client)
+            task.update({"stage": "transcribing", "progress": 100})
 
         # Step 3: Analyze with Stage 1 context
         task.update({"stage": "analyzing", "progress": 10})
@@ -2274,9 +2296,10 @@ async def api_interview_stage2(
     audio_file: UploadFile = File(None),
     audio_url: str = Form(""),
     model: str = Form("claude-sonnet-4-6"),
+    transcript_text: str = Form(""),
 ):
     check_key(key)
-    
+
     # Check Stage 1 exists
     s1_path = INTERVIEWS_DIR / f"{interview_id}.json"
     if not s1_path.exists():
@@ -2288,32 +2311,33 @@ async def api_interview_stage2(
 
     # Handle audio file
     audio_path = ""
-    if audio_file and audio_file.filename:
-        safe_name = audio_file.filename.replace("/", "_").replace("..", "_")
-        persist_path = INTERVIEW_UPLOADS_DIR / "stage2" / safe_name
-        persist_path.parent.mkdir(parents=True, exist_ok=True)
-        content = await audio_file.read()
-        with open(persist_path, "wb") as f:
-            f.write(content)
-        audio_path = str(persist_path)
-    elif audio_url:
-        # Download
-        work_dir = INTERVIEWS_DIR / f"stage2_{task_id}"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        dest = str(work_dir / "audio_download.mp4")
-        if "cloud.mail.ru" in audio_url:
-            _download_from_cloud_mail(audio_url, dest)
-        else:
-            _download_direct(audio_url, dest)
-        audio_path = dest
-    
-    if not audio_path:
-        raise HTTPException(400, "No audio provided")
+    if not transcript_text.strip():
+        if audio_file and audio_file.filename:
+            safe_name = audio_file.filename.replace("/", "_").replace("..", "_")
+            persist_path = INTERVIEW_UPLOADS_DIR / "stage2" / safe_name
+            persist_path.parent.mkdir(parents=True, exist_ok=True)
+            content = await audio_file.read()
+            with open(persist_path, "wb") as f:
+                f.write(content)
+            audio_path = str(persist_path)
+        elif audio_url:
+            # Download
+            work_dir = INTERVIEWS_DIR / f"stage2_{task_id}"
+            work_dir.mkdir(parents=True, exist_ok=True)
+            dest = str(work_dir / "audio_download.mp4")
+            if "cloud.mail.ru" in audio_url:
+                _download_from_cloud_mail(audio_url, dest)
+            else:
+                _download_direct(audio_url, dest)
+            audio_path = dest
+
+    if not audio_path and not transcript_text.strip():
+        raise HTTPException(400, "No audio or transcript provided")
 
     import threading
     t = threading.Thread(
         target=_run_stage2_pipeline,
-        args=(task_id, interview_id, audio_path, model),
+        args=(task_id, interview_id, audio_path, model, transcript_text),
         daemon=True,
     )
     t.start()
