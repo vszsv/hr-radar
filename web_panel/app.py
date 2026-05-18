@@ -1598,17 +1598,33 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
     }}
 }}"""
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=8000,
-        messages=[{
-            "role": "user",
-            "content": f"Транскрипция интервью:\n\n{transcript}"
-        }],
-        system=system_prompt
-    )
-
-    text = response.content[0].text.strip()
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=8000,
+            messages=[{
+                "role": "user",
+                "content": f"Транскрипция интервью:\n\n{transcript}"
+            }],
+            system=system_prompt
+        )
+        text = response.content[0].text.strip()
+    except Exception as e:
+        err_str = str(e)
+        if "usage limits" in err_str.lower() or "rate_limit" in err_str.lower() or "overloaded" in err_str.lower():
+            print(f"Anthropic недоступен ({err_str[:120]}), fallback на OpenAI gpt-5.5")
+            from openai import OpenAI
+            oai = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+            oai_resp = oai.chat.completions.create(
+                model="gpt-5.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Транскрипция интервью:\n\n{transcript}"}
+                ]
+            )
+            text = oai_resp.choices[0].message.content.strip()
+        else:
+            raise
     # Try to extract JSON from response
     if "```json" in text:
         text = text.split("```json", 1)[1].rsplit("```", 1)[0].strip()
@@ -1627,8 +1643,7 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
-        logger.error(f"Interview analysis JSON parse error: {e}\nRaw text (first 500): {text[:500]}")
-        # Try to fix common issues
+        print(f"Interview analysis JSON parse error: {e}\nRaw text (first 500): {text[:500]}")
         import re
         text = re.sub(r',\s*}', '}', text)
         text = re.sub(r',\s*]', ']', text)
@@ -1812,7 +1827,7 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
                 _client = _anth.Anthropic()
                 transcript = _identify_speakers(transcript, _client)
             except Exception as e:
-                logger.warning(f"Speaker identification failed, continuing without: {e}")
+                print(f"Speaker identification failed, continuing without: {e}")
         if input_mode != "text":
             task.update({"stage": "transcribing", "progress": 100})
 
@@ -1858,8 +1873,11 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
 
     except Exception as e:
         import traceback
-        logger.error(f"Interview pipeline error: {e}\n{traceback.format_exc()}")
-        task.update({"stage": "error", "message": str(e)})
+        print(f"Interview pipeline error: {e}\n{traceback.format_exc()}")
+        msg = str(e)
+        if "workspace API usage limits" in msg or "usage limits" in msg.lower():
+            msg = "Anthropic API недоступен (лимит воркспейса до 01.06.2026). Транскрипция готова, анализ пропущен."
+        task.update({"stage": "error", "message": msg})
     finally:
         # Cleanup work dir (keep result JSON)
         try:
