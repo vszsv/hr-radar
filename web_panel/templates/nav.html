@@ -1,6 +1,51 @@
 <!-- Unified Navigation — HR Radar -->
 {% set path = request.url.path %}
 {% set nav_key = key|default('') %}
+
+{% if readonly %}
+<div id="ro-banner" class="bg-yellow-100 border-b border-yellow-300 text-yellow-900 text-sm py-2 px-4 text-center font-medium sticky top-0 z-50">
+  👀 Режим только для чтения — изменения не сохраняются
+</div>
+<style>
+  body.hr-readonly .ro-blocked {
+    opacity: 0.45;
+    cursor: not-allowed !important;
+    pointer-events: none;
+  }
+</style>
+<script>
+(function(){
+  window.__HR_READONLY__ = true;
+  document.addEventListener('DOMContentLoaded', function(){
+    document.body.classList.add('hr-readonly');
+    var writePat = /сохран|удал|импорт|запуст|создат|добав|применить|отправ|загруз|анализ|stage 2|переанал|ретроск|повторн|очистит|сброс|пересч|опубл/i;
+    function scan(){
+      document.querySelectorAll('button:not(.ro-allowed):not([data-ro-skip])').forEach(function(b){
+        if (b.closest('nav')) return;
+        var t = (b.innerText || b.textContent || '').trim();
+        if (t && writePat.test(t)) {
+          b.classList.add('ro-blocked');
+          b.setAttribute('title', 'Доступ только для чтения');
+        }
+      });
+    }
+    scan();
+    new MutationObserver(scan).observe(document.body, {childList:true, subtree:true});
+  });
+  var _fetch = window.fetch;
+  window.fetch = function(url, opts){
+    var m = (opts && opts.method ? String(opts.method) : 'GET').toUpperCase();
+    if (m === 'POST' || m === 'PUT' || m === 'DELETE' || m === 'PATCH') {
+      console.warn('[read-only] blocked', m, url);
+      var body = JSON.stringify({detail: 'Read-only mode: write blocked client-side'});
+      return Promise.resolve(new Response(body, {status: 403, headers: {'Content-Type':'application/json'}}));
+    }
+    return _fetch.apply(this, arguments);
+  };
+})();
+</script>
+{% endif %}
+
 <nav class="bg-white shadow-sm border-b sticky top-0 z-50"
      x-data="{ mobile: false, autoDD: false }"
      @keydown.escape="autoDD=false; mobile=false">

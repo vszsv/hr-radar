@@ -26,6 +26,7 @@ if env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 ACCESS_KEY = os.environ.get("HR_PANEL_KEY", "hrpanel2026")
+READONLY_KEY = os.environ.get("HR_PANEL_READONLY_KEY", "thesis-readonly-2026")
 HH_RESUMES_DIR = Path(__file__).parent.parent / "data" / "hh_resumes"
 HH_RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 JOURNEY_DB = Path(__file__).parent.parent / "data" / "candidate_journey.db"
@@ -139,15 +140,23 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+@app.middleware("http")
+async def block_writes_for_readonly(request: Request, call_next):
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        key = request.query_params.get("key", "")
+        if key == READONLY_KEY and key != ACCESS_KEY:
+            return JSONResponse(status_code=403, content={"detail": "Read-only access: write operations are not allowed"})
+    return await call_next(request)
+
 def check_key(key):
-    if key != ACCESS_KEY:
+    if key not in (ACCESS_KEY, READONLY_KEY):
         raise HTTPException(status_code=403, detail="Invalid key")
 
 # ─── Pages ───
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("index.html", {"request": request, "key": key})
+    return templates.TemplateResponse("index.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 # ─── API: Dashboard stats ───
 @app.get("/api/dashboard")
@@ -1891,7 +1900,7 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
 @app.get("/interview", response_class=HTMLResponse)
 async def interview_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("interview.html", {"request": request, "key": key})
+    return templates.TemplateResponse("interview.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 
 @app.get("/api/interview/prompts")
@@ -2420,12 +2429,12 @@ def _save_btl_companies(companies):
 @app.get("/autosearch")
 async def autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("autosearch.html", {"request": request, "key": key})
+    return templates.TemplateResponse("autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 @app.get("/autosearch/btl")
 async def btl_autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("btl_autosearch.html", {"request": request, "key": key})
+    return templates.TemplateResponse("btl_autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 @app.get("/api/autosearch/companies")
 async def api_autosearch_companies(key: str = Query("")):
@@ -2813,7 +2822,7 @@ _btl_spb_autosearch_tasks = {}
 @app.get("/autosearch/btl-spb")
 async def btl_spb_autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("btl_spb_autosearch.html", {"request": request, "key": key})
+    return templates.TemplateResponse("btl_spb_autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 @app.get("/api/autosearch/btl-spb/companies")
 async def api_btl_spb_companies(key: str = Query("")):
@@ -3007,7 +3016,7 @@ def _save_outsource_companies(companies):
 @app.get("/outsource")
 async def outsource_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("outsource.html", {"request": request, "key": key})
+    return templates.TemplateResponse("outsource.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
 
 @app.get("/api/outsource/companies")
 async def api_outsource_companies(key: str = Query("")):
