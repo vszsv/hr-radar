@@ -6,6 +6,7 @@ import asyncio
 import time
 import sqlite3
 from pathlib import Path
+from typing import List
 from datetime import datetime, timezone, timedelta
 
 # Add parent to path for imports
@@ -26,7 +27,6 @@ if env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 ACCESS_KEY = os.environ.get("HR_PANEL_KEY", "hrpanel2026")
-READONLY_KEY = os.environ.get("HR_PANEL_READONLY_KEY", "thesis-readonly-2026")
 HH_RESUMES_DIR = Path(__file__).parent.parent / "data" / "hh_resumes"
 HH_RESUMES_DIR.mkdir(parents=True, exist_ok=True)
 JOURNEY_DB = Path(__file__).parent.parent / "data" / "candidate_journey.db"
@@ -140,23 +140,15 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-@app.middleware("http")
-async def block_writes_for_readonly(request: Request, call_next):
-    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-        key = request.query_params.get("key", "")
-        if key == READONLY_KEY and key != ACCESS_KEY:
-            return JSONResponse(status_code=403, content={"detail": "Read-only access: write operations are not allowed"})
-    return await call_next(request)
-
 def check_key(key):
-    if key not in (ACCESS_KEY, READONLY_KEY):
+    if key != ACCESS_KEY:
         raise HTTPException(status_code=403, detail="Invalid key")
 
 # ─── Pages ───
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("index.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("index.html", {"request": request, "key": key})
 
 # ─── API: Dashboard stats ───
 @app.get("/api/dashboard")
@@ -966,7 +958,7 @@ async def api_models(key: str = Query("")):
         {"id": "gpt-5.2", "name": "GPT-5.2", "price": "$0.01/кандидат", "quality": "⭐⭐⭐⭐⭐"},
         {"id": "gpt-4o", "name": "GPT-4o", "price": "$0.005/кандидат", "quality": "⭐⭐⭐"},
         {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6", "price": "$0.005/кандидат", "quality": "⭐⭐⭐⭐"},
-        {"id": "claude-opus-4-6", "name": "Claude Opus 4.6", "price": "$0.02/кандидат", "quality": "⭐⭐⭐⭐⭐"},
+        {"id": "claude-opus-4-8", "name": "Claude Opus 4.8", "price": "$0.02/кандидат", "quality": "⭐⭐⭐⭐⭐"},
     ]}
 
 # ─── API: Prompts ───
@@ -1359,6 +1351,37 @@ def _extract_audio(video_path: str, audio_path: str):
     ], check=True, capture_output=True)
 
 
+def _merge_audio_parts(audio_paths: list, output_path: str) -> str:
+    """Merge multiple audio files into one using ffmpeg concat demuxer."""
+    if len(audio_paths) == 1:
+        import shutil
+        shutil.copy2(audio_paths[0], output_path)
+        return output_path
+    filelist = output_path + ".filelist.txt"
+    try:
+        with open(filelist, "w") as f:
+            for p in audio_paths:
+                f.write(f"file '{p}'\n")
+        result = subprocess.run(
+            ["ffmpeg", "-f", "concat", "-safe", "0", "-i", filelist, "-c", "copy", "-y", output_path],
+            capture_output=True
+        )
+        if result.returncode != 0:
+            # fallback: re-encode if codec mismatch
+            result2 = subprocess.run(
+                ["ffmpeg", "-f", "concat", "-safe", "0", "-i", filelist, "-c:a", "libmp3lame", "-q:a", "4", "-y", output_path],
+                capture_output=True
+            )
+            if result2.returncode != 0:
+                raise RuntimeError(f"ffmpeg concat failed: {result2.stderr.decode()}")
+    finally:
+        try:
+            os.remove(filelist)
+        except:
+            pass
+    return output_path
+
+
 def _split_audio_if_needed(audio_path: str, max_size_mb: int = 24) -> list:
     """Split audio file into chunks if it exceeds max_size_mb. Returns list of file paths."""
     file_size = os.path.getsize(audio_path)
@@ -1520,7 +1543,7 @@ def _identify_speakers(transcript: str, client) -> str:
         return transcript  # No diarization, skip
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",  # Use fast model for this step
+        model="claude-sonnet-4-6",
         max_tokens=100,
         system="Определи, кто из спикеров интервьюер (рекрутер), а кто кандидат. Обычно интервьюер задаёт вопросы, а кандидат отвечает и рассказывает о себе. Ответь СТРОГО в формате JSON: {\"interviewer\": \"A\", \"candidate\": \"B\"} — укажи буквы спикеров.",
         messages=[{"role": "user", "content": f"Начало транскрипции:\n\n{transcript[:3000]}"}]
@@ -1569,7 +1592,7 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
 
 ВАЖНО: Для ключевых утверждений приводи 1-2 конкретные цитаты кандидата из интервью (в кавычках). Не нужно цитировать всё — только самые показательные моменты.
 
-Дай структурированный анализ в формате JSON (только JSON, без markdown):
+Дай структурированный анализ в формате JSON (только JSON, без markdown). ОБЯЗАТЕЛЬНО включи ВСЕ секции: summary, vacancy_fit, psychological_profile, speech_analysis, psychotype_analysis, overall. Не пропускай ни одну секцию.
 {{
     "summary": "Краткое резюме интервью (2-3 предложения)",
     "vacancy_fit": {{
@@ -1650,13 +1673,23 @@ def _analyze_interview(transcript: str, vacancy_prompt: str, model: str, vacancy
                 text = text[start:i+1]
                 break
     try:
-        return json.loads(text)
+        result = json.loads(text)
     except json.JSONDecodeError as e:
         print(f"Interview analysis JSON parse error: {e}\nRaw text (first 500): {text[:500]}")
         import re
         text = re.sub(r',\s*}', '}', text)
         text = re.sub(r',\s*]', ']', text)
-        return json.loads(text)
+        result = json.loads(text)
+
+    # Ensure all required sections exist (some models skip sections)
+    if "speech_analysis" not in result:
+        result["speech_analysis"] = {"confidence_level": "", "specificity": "", "self_presentation": "", "red_flags": []}
+    if "psychotype_analysis" not in result:
+        result["psychotype_analysis"] = {"accentuation": "", "enneagram": "", "disc": "", "conflict_style": ""}
+    if "overall" not in result:
+        result["overall"] = {"strengths": [], "risks": [], "recommendation": "", "next_interview_questions": []}
+
+    return result
 
 
 def _generate_interview_pdf(task_id: str, analysis: dict, vacancy: str, model: str) -> str:
@@ -1774,7 +1807,7 @@ p {{ margin: 4px 0; }}
     return pdf_path
 
 
-def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, model: str, video_url: str = "", vacancy_pdf_path: str = "", resume_pdf_path: str = "", input_mode: str = "video", transcript_text: str = "", audio_path_direct: str = ""):
+def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, model: str, video_url: str = "", vacancy_pdf_path: str = "", resume_pdf_path: str = "", input_mode: str = "video", transcript_text: str = "", audio_path_direct: str = "", video_urls: list = None):
     """Run the full interview analysis pipeline in a background thread."""
     task = _interview_tasks[task_id]
     work_dir = INTERVIEWS_DIR / task_id
@@ -1791,37 +1824,40 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
             transcript = _transcribe_audio(audio_path_direct)
             task.update({"stage": "transcribing", "progress": 80})
         else:
-            # VIDEO mode (original flow)
+            # VIDEO mode
+            urls = [u for u in (video_urls or []) if u.strip()] or ([video_url] if video_url.strip() else [])
+
             # Step 1: Download if needed
             if not video_path:
                 task.update({"stage": "downloading", "progress": 10})
                 import hashlib as _hl
-                url_hash = _hl.md5(video_url.encode()).hexdigest()[:8]
-                url_name = video_url.rstrip('/').split('/')[-1].split('?')[0]
-                if not url_name or len(url_name) > 60:
-                    url_name = f"video_{url_hash}"
-                if not any(url_name.lower().endswith(ext) for ext in ('.mp4', '.mov', '.avi', '.mkv', '.webm')):
-                    url_name += '.mp4'
-                persist_path = INTERVIEW_UPLOADS_DIR / "videos" / url_name
-                dest = str(work_dir / "video.mp4")
-                if "cloud.mail.ru" in video_url:
-                    task.update({"stage": "downloading", "progress": 30})
-                    _download_from_cloud_mail(video_url, dest)
-                else:
-                    task.update({"stage": "downloading", "progress": 30})
-                    _download_direct(video_url, dest)
-                try:
-                    import shutil
-                    shutil.copy2(dest, str(persist_path))
-                except:
-                    pass
-                video_path = dest
+                downloaded_videos = []
+                for idx, url in enumerate(urls):
+                    url_hash = _hl.md5(url.encode()).hexdigest()[:8]
+                    dest = str(work_dir / f"video_{idx}.mp4")
+                    task.update({"stage": "downloading", "progress": 10 + int(80 * idx / len(urls))})
+                    try:
+                        if "cloud.mail.ru" in url:
+                            _download_from_cloud_mail(url, dest)
+                        else:
+                            _download_direct(url, dest)
+                    except Exception as e:
+                        raise RuntimeError(f"Не удалось скачать часть {idx+1}: {url}\n{e}")
+                    downloaded_videos.append(dest)
+                video_path = downloaded_videos[0] if len(downloaded_videos) == 1 else None
                 task.update({"stage": "downloading", "progress": 100})
+            else:
+                downloaded_videos = [video_path]
 
-            # Step 2: Extract audio
+            # Step 2: Extract audio from each part, then merge
             task.update({"stage": "extracting_audio", "progress": 10})
+            audio_parts = []
+            for idx, vp in enumerate(downloaded_videos):
+                part_path = str(work_dir / f"audio_part_{idx}.mp3")
+                _extract_audio(vp, part_path)
+                audio_parts.append(part_path)
             audio_path = str(work_dir / "audio.mp3")
-            _extract_audio(video_path, audio_path)
+            _merge_audio_parts(audio_parts, audio_path)
             task.update({"stage": "extracting_audio", "progress": 100})
 
             # Step 3: Transcribe
@@ -1900,7 +1936,7 @@ def _run_interview_pipeline(task_id: str, video_path: str, vacancy_slug: str, mo
 @app.get("/interview", response_class=HTMLResponse)
 async def interview_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("interview.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("interview.html", {"request": request, "key": key})
 
 
 @app.get("/api/interview/prompts")
@@ -1992,8 +2028,9 @@ from fastapi import UploadFile, File, Form
 async def api_interview_analyze(
     key: str = Query(""),
     video_url: str = Form(""),
+    video_urls: List[str] = Form([]),
     vacancy: str = Form(""),
-    model: str = Form("claude-sonnet-4-20250514"),
+    model: str = Form("claude-sonnet-4-6"),
     input_mode: str = Form("video"),
     transcript_text: str = Form(""),
     video_file: UploadFile = File(None),
@@ -2013,7 +2050,8 @@ async def api_interview_analyze(
         if not audio_file or not audio_file.filename:
             return JSONResponse({"error": "Загрузите аудиофайл"}, status_code=400)
     else:  # video
-        if not video_url and not video_file and not existing_video:
+        effective_urls = [u for u in video_urls if u.strip()] or ([video_url] if video_url.strip() else [])
+        if not effective_urls and not video_file and not existing_video:
             return JSONResponse({"error": "Нужна ссылка на видео или файл"}, status_code=400)
 
     if not vacancy:
@@ -2021,8 +2059,11 @@ async def api_interview_analyze(
 
     # Map model names
     model_map = {
-        "claude-sonnet-4-6": "claude-sonnet-4-20250514",
-        "claude-opus-4-6": "claude-opus-4-20250514",
+        "claude-sonnet-4-6": "claude-sonnet-4-6",
+        "claude-opus-4-6": "claude-opus-4-8",
+        "claude-opus-4-8": "claude-opus-4-8",
+        "claude-sonnet-4-20250514": "claude-sonnet-4-6",
+        "claude-opus-4-20250514": "claude-opus-4-8",
     }
     model = model_map.get(model, model)
 
@@ -2086,7 +2127,7 @@ async def api_interview_analyze(
     threading.Thread(
         target=_run_interview_pipeline,
         args=(task_id, video_path, vacancy, model, video_url, vacancy_pdf_path, resume_pdf_path),
-        kwargs={"input_mode": input_mode, "transcript_text": transcript_text, "audio_path_direct": audio_path_direct},
+        kwargs={"input_mode": input_mode, "transcript_text": transcript_text, "audio_path_direct": audio_path_direct, "video_urls": effective_urls if input_mode == "video" else []},
         daemon=True
     ).start()
 
@@ -2429,12 +2470,12 @@ def _save_btl_companies(companies):
 @app.get("/autosearch")
 async def autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("autosearch.html", {"request": request, "key": key})
 
 @app.get("/autosearch/btl")
 async def btl_autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("btl_autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("btl_autosearch.html", {"request": request, "key": key})
 
 @app.get("/api/autosearch/companies")
 async def api_autosearch_companies(key: str = Query("")):
@@ -2822,7 +2863,7 @@ _btl_spb_autosearch_tasks = {}
 @app.get("/autosearch/btl-spb")
 async def btl_spb_autosearch_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("btl_spb_autosearch.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("btl_spb_autosearch.html", {"request": request, "key": key})
 
 @app.get("/api/autosearch/btl-spb/companies")
 async def api_btl_spb_companies(key: str = Query("")):
@@ -3016,7 +3057,7 @@ def _save_outsource_companies(companies):
 @app.get("/outsource")
 async def outsource_page(request: Request, key: str = Query("")):
     check_key(key)
-    return templates.TemplateResponse("outsource.html", {"request": request, "key": key, "readonly": key == READONLY_KEY})
+    return templates.TemplateResponse("outsource.html", {"request": request, "key": key})
 
 @app.get("/api/outsource/companies")
 async def api_outsource_companies(key: str = Query("")):

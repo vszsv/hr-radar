@@ -350,7 +350,7 @@
                   <div class="flex items-center gap-3">
                     <select x-model="s2model" class="text-xs border rounded-lg px-2 py-1.5">
                       <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                      <option value="claude-opus-4-8">Claude Opus 4.8</option>
                     </select>
                     <button @click="startStage2(h.id)"
                       :disabled="s2inputMode==='text' ? (!s2text.trim() || s2text.trim().length < 50) : (!s2file && !s2url)"
@@ -406,7 +406,7 @@
       <div x-show="inputMode==='video'">
         <template x-if="uploads.videos.length > 0">
           <div class="mb-3">
-            <select x-model="existingVideo" @change="if(existingVideo) { videoFile=null; videoUrl=''; }" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <select x-model="existingVideo" @change="if(existingVideo) { videoFile=null; videoUrls=[''];}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="">Загрузить новое...</option>
               <template x-for="f in uploads.videos" :key="f.path">
                 <option :value="f.path" x-text="f.name + ' (' + formatFileSize(f.size) + ', ' + f.date + ')'"></option>
@@ -415,9 +415,16 @@
           </div>
         </template>
         <div x-show="!existingVideo">
-          <label class="block text-sm font-medium text-gray-600 mb-2">🔗 Ссылка на видео</label>
-          <input type="url" x-model="videoUrl" placeholder="https://cloud.mail.ru/public/... или прямая ссылка"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-3">
+          <label class="block text-sm font-medium text-gray-600 mb-2">🔗 Ссылки на видео</label>
+          <template x-for="(url, i) in videoUrls" :key="i">
+            <div class="flex gap-2 mb-2">
+              <input type="url" x-model="videoUrls[i]" :placeholder="i === 0 ? 'https://cloud.mail.ru/public/... или прямая ссылка' : 'Ссылка на часть ' + (i+1)"
+                class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              <button x-show="videoUrls.length > 1" @click="removeVideoUrl(i)"
+                class="px-2 py-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition text-lg leading-none">×</button>
+            </div>
+          </template>
+          <button @click="addVideoUrl()" class="text-xs text-blue-600 hover:text-blue-800 hover:underline mb-3">+ Добавить часть</button>
           <div class="text-center text-xs text-gray-400 mb-3">или</div>
           <div
             @dragover.prevent="dragOver = true"
@@ -560,9 +567,9 @@
           </div>
         </label>
         <label class="flex-1 cursor-pointer">
-          <input type="radio" x-model="model" value="claude-opus-4-6" class="peer hidden">
+          <input type="radio" x-model="model" value="claude-opus-4-8" class="peer hidden">
           <div class="border-2 rounded-lg p-3 text-center transition-colors peer-checked:border-purple-500 peer-checked:bg-purple-50 border-gray-200 hover:border-gray-300">
-            <div class="font-medium text-sm">Claude Opus 4.6</div>
+            <div class="font-medium text-sm">Claude Opus 4.8</div>
             <div class="text-xs text-gray-400">Максимальное качество</div>
           </div>
         </label>
@@ -821,6 +828,7 @@ function interviewApp() {
     vacancy: '',
     inputMode: 'video',
     videoUrl: '',
+    videoUrls: [''],
     videoFile: null,
     audioFile: null,
     audioDragOver: false,
@@ -847,7 +855,7 @@ function interviewApp() {
     steps: [],
 
     get hasInput() {
-      if (this.inputMode === 'video') return !!(this.videoUrl || this.videoFile || this.existingVideo);
+      if (this.inputMode === 'video') return !!(this.videoUrls.some(u => u.trim()) || this.videoFile || this.existingVideo);
       if (this.inputMode === 'audio') return !!this.audioFile;
       if (this.inputMode === 'text') return !!(this.transcriptText && this.transcriptText.trim().length > 50);
       return false;
@@ -873,6 +881,14 @@ function interviewApp() {
       } catch (e) {
         console.error('Failed to load data:', e);
       }
+    },
+
+    addVideoUrl() {
+      this.videoUrls.push('');
+    },
+
+    removeVideoUrl(i) {
+      if (this.videoUrls.length > 1) this.videoUrls.splice(i, 1);
     },
 
     handleDrop(event) {
@@ -953,7 +969,7 @@ function interviewApp() {
         formData.append('input_mode', this.inputMode);
 
         if (this.inputMode === 'video') {
-          if (this.videoUrl) formData.append('video_url', this.videoUrl);
+          this.videoUrls.filter(u => u.trim()).forEach(u => formData.append('video_urls', u));
           if (this.videoFile) formData.append('video_file', this.videoFile);
           if (this.existingVideo) formData.append('existing_video', this.existingVideo);
         } else if (this.inputMode === 'audio') {
