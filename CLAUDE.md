@@ -85,3 +85,48 @@ HH API / IMAP  →  Дедупликация (seen_links)  →  GPT-4o Batch-с�
 - **radar_controls.json:** не редактировать вручную — управлять через Telegram-бот.
 - **Web Panel:** доступ по ключу (`?key=`), не менять авторизацию без согласования.
 - **Rate limits:** HH API — 0.3-1с между запросами, OpenAI — batch по 15 кандидатов.
+
+## Деплой (после миграции)
+
+**ВАЖНО:** Production-сервисы работают из `/opt/hr-radar/` под пользователем `hr-radar` с `ProtectHome=true` (не имеет доступа к `/root/`). Код в `/root/projects/hr-radar/` — для разработки через Claude Code.
+
+```bash
+# После изменений — деплой в продакшн:
+sudo rsync -av --exclude='venv/' --exclude='.git/' --exclude='data/' /root/projects/hr-radar/ /opt/hr-radar/
+sudo chown -R hr-radar:hr-radar /opt/hr-radar/
+sudo systemctl restart hr-radar-control hr-radar-panel
+journalctl -u hr-radar-control -n 10 --no-pager
+```
+
+Сервисы:
+- `hr-radar-control` — Telegram-бот (active)
+- `hr-radar-panel` — веб-панель :8093 (active)
+- `hr-radar-multi` — сканер (oneshot, по расписанию)
+- `hr-radar` — парсер (oneshot, disabled)
+- `hh-token-refresh` — обновление токена HH
+- `hr-radar-hh-session` — автологин HH через Playwright
+
+## Контекст из OpenClaw
+
+### Панель и доступ
+- Веб-панель: `http://89.167.49.12:8093/?key=hrpanel2026`
+
+### Особенности сбора данных
+- Event/BTL профили: сбор через IMAP (автопоиски HH -> почта -> парсинг)
+- Аутсорсинг: сбор через HH API напрямую (30 компаний + 2 прямых поиска)
+- HH WORKPLACES: общие названия дают шум -> добавлять AND контекст
+- Два канала: WORKPLACES (конкуренты) + прямой поиск по позиции
+- Скоринг: первичный GPT-4o -> deep GPT-5.2
+
+### Интервью-модуль
+- `/interview` — видео -> AssemblyAI -> Claude Opus/Sonnet -> PDF
+
+### FriendWork
+- Интеграция для импорта кандидатов в CRM
+
+### HH OAuth
+- Аккаунт btl-agency.ru, токены автообновляются
+
+### Открытые задачи
+- [ ] Аутсорсинг — полный прогон по всем 30 компаниям
+- [ ] Диплом — AI-скрининг резюме (тема подтверждена)

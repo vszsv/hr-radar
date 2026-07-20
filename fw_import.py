@@ -1,6 +1,7 @@
 """FriendWork import: batch import candidates from HH API to FriendWork vacancy."""
 
 import os
+import re
 import json
 import time
 import base64
@@ -11,6 +12,15 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 load_dotenv(Path(__file__).parent / '.env')
+
+# ─── Открытие контактов по фото — через contacts-service (HTTP) ───
+# hr-radar НЕ держит секрет юзербота и НЕ дёргает бот напрямую. Дедуп, бюджет и
+# аудит централизованы в сервисе. Фича включается тумблером open_contacts на роль.
+CONTACTS_SERVICE_URL = os.environ.get("CONTACTS_SERVICE_URL", "").rstrip("/")
+CONTACTS_SERVICE_TOKEN = os.environ.get("CONTACTS_SERVICE_TOKEN", "")
+CONTACTS_TIMEOUT = int(os.environ.get("CONTACTS_TIMEOUT", "220"))
+_CONTACT_CATEGORIES = (
+    "phones", "emails", "telegram", "whatsapp", "vk", "instagram", "other_socials")
 
 
 def get_fw_headers():
@@ -119,9 +129,112 @@ def _save_import_log(log: dict):
     log_path = Path(__file__).parent / "data" / "fw_imports.json"
     log_path.write_text(json.dumps(log, ensure_ascii=False))
 
-def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
+
+def _empty_contacts() -> dict:
+    return {k: [] for k in _CONTACT_CATEGORIES}
+
+
+def open_contacts_by_photo(hh_resume: dict, hh_url: str, photo_b64: str = None) -> dict:
+    """Открыть контакты кандидата по фото через contacts-service (HTTP).
+
+    hr-radar НЕ держит секрет юзербота и не дёргает бот напрямую — всё через сервис,
+    который централизует дедуп/бюджет/аудит. Возвращает категории контактов
+    (phones/emails/telegram/whatsapp/vk/instagram/other_socials). Пусто, если сервис
+    не настроен, нет hh_url или нет фото — вызывающий код это переживает.
+    """
+    categories = _empty_contacts()
+    if not hh_url or not CONTACTS_SERVICE_URL:
+        return categories
+
+    # Фото в base64: уже полученное, либо скачиваем photo['500'].
+    if not photo_b64:
+        photo_url = (hh_resume.get('photo') or {}).get('500') or (hh_resume.get('photo') or {}).get('medium')
+        if photo_url:
+            try:
+                r = requests.get(photo_url, timeout=15)
+                if r.status_code == 200:
+                    photo_b64 = base64.b64encode(r.content).decode('utf-8')
+            except Exception:
+                photo_b64 = None
+    if not photo_b64:
+        return categories
+
+    try:
+        resp = requests.post(
+            f"{CONTACTS_SERVICE_URL}/v1/open-contacts",
+            headers={"X-Auth-Token": CONTACTS_SERVICE_TOKEN},
+            json={"identity": hh_url, "photo_b64": photo_b64, "caller": "hr-radar"},
+            timeout=CONTACTS_TIMEOUT)
+        if resp.status_code == 200:
+            data = resp.json()
+            for k in _CONTACT_CATEGORIES:
+                v = data.get(k)
+                if isinstance(v, list):
+                    categories[k] = [x for x in v if x]
+        else:
+            logger.warning(f"contacts-service {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        logger.warning(f"contacts-service call failed for {hh_url}: {e}")
+
+    return categories
+
+
+def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
+    """Merge photo-lookup contacts into the FW candidate payload, in place.
+
+    phones/emails/telegram/whatsapp → candidate["Contacts"] (list of dicts),
+    vk/instagram/other_socials → candidate["SocialLinks"] (dict, not overwritten).
+    Deduplicates against contacts already present (e.g. Telegram parsed from
+    the about-text).
+    """
+    contacts_list = candidate.setdefault("Contacts", [])
+    social = candidate.setdefault("SocialLinks", {})
+
+    existing = set()
+    for c in contacts_list:
+        if isinstance(c, dict):
+            for k, v in c.items():
+                existing.add((k, v))
+
+    def add_contact(field, value):
+        if value and (field, value) not in existing:
+            contacts_list.append({field: value})
+            existing.add((field, value))
+
+    for p in contacts.get("phones", []):
+        add_contact("Phone", p)
+    for e in contacts.get("emails", []):
+        add_contact("Email", e)
+    for t in contacts.get("telegram", []):
+        add_contact("Telegram", t)
+    for w in contacts.get("whatsapp", []):
+        add_contact("WhatsApp", w)
+
+    def add_social(key, url):
+        if url and key not in social:
+            social[key] = url
+
+    for url in contacts.get("vk", []):
+        add_social("VK", url)
+    for url in contacts.get("instagram", []):
+        add_social("Instagram", url)
+    for url in contacts.get("other_socials", []):
+        low = url.lower()
+        if "ok.ru" in low:
+            add_social("OK", url)
+        elif "facebook" in low or "fb.com" in low:
+            add_social("Facebook", url)
+        else:
+            add_social("Other", url)
+
+
+def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = False) -> dict:
     """Import a single HH resume into FriendWork vacancy.
-    
+
+    When open_contacts=True, look up extra contacts by the candidate's photo via
+    the Sherlock bot (deduplicated, best-effort) and merge them into the card
+    before sending. Any failure there is swallowed — it never breaks the import.
+
     Returns: {"ok": bool, "candidate_id": int|None, "message": str}
     """
     from hh_api import get_resume
@@ -307,7 +420,17 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int) -> dict:
         candidate["Photo"] = f"data:image/jpeg;base64,{photo_b64}"
     if pdf_data_uri:
         candidate["FileContent"] = pdf_data_uri
-    
+
+    # 12b. Optionally open extra contacts by photo (PAID, deduped, best-effort).
+    if open_contacts:
+        try:
+            found = open_contacts_by_photo(hh, hh_url, photo_b64=photo_b64)
+            if any(found.values()):
+                merge_contacts_into_candidate(candidate, found)
+                logger.info(f"open_contacts: merged extra contacts for {hh_url}")
+        except Exception as e:
+            logger.warning(f"open_contacts failed for {hh_url}: {e}")
+
     # 13. Send to FriendWork
     fw_h = get_fw_headers()
     try:

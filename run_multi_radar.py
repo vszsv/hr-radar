@@ -1162,7 +1162,8 @@ def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
             continue
         
         try:
-            res = import_hh_to_fw(resume_id, fw_vacancy_id)
+            res = import_hh_to_fw(resume_id, fw_vacancy_id,
+                                  open_contacts=autoflow_cfg.get("open_contacts", False))
             cid = res.get("candidate_id")
             
             # Set AI status in FW

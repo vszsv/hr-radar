@@ -229,6 +229,10 @@
                       <input type="checkbox" :checked="j.autoflow?.fw_import_rejected" @change="toggleAutoflow(p.id, j.slug, 'fw_import_rejected')" class="rounded">
                       <span>❌ Импорт отказов</span>
                     </label>
+                    <label class="flex items-center gap-1 cursor-pointer" title="Пробив контактов кандидата по фото через бот Шерлок — каждый вызов платный">
+                      <input type="checkbox" :checked="j.autoflow?.open_contacts" @change="toggleAutoflow(p.id, j.slug, 'open_contacts')" class="rounded">
+                      <span>🔍 Открывать контакты по фото ($)</span>
+                    </label>
                   </div>
                   <!-- Per-job thresholds -->
                   <div class="flex gap-3 items-center">

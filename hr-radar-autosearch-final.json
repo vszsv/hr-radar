@@ -1,0 +1,357 @@
+[
+  {
+    "name": "Alex Production",
+    "query": "WORKPLACE_ORGANIZATION:(\"Alex Production\" OR \"ООО Alex Production\" OR \"АО Alex Production\" OR \"ЗАО Alex Production\" OR \"ИП Alex Production\" OR \"alex-event.ru\" OR \"alex-event\" OR \"алекс продакшн\")",
+    "cleaned": false
+  },
+  {
+    "name": "Бизнес Диалог",
+    "query": "WORKPLACE_ORGANIZATION:(\"Бизнес Диалог\" OR \"ООО Бизнес Диалог\" OR \"АО Бизнес Диалог\" OR \"ЗАО Бизнес Диалог\" OR \"ИП Бизнес Диалог\" OR \"bd-event.ru\" OR \"bd-event\")",
+    "cleaned": false
+  },
+  {
+    "name": "Avantage Event Project",
+    "query": "WORKPLACE_ORGANIZATION:(\"Avantage Event Project\" OR \"ООО Avantage Event Project\" OR \"АО Avantage Event Project\" OR \"ЗАО Avantage Event Project\" OR \"ИП Avantage Event Project\")",
+    "cleaned": true
+  },
+  {
+    "name": "Braining Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"Braining Group\" OR \"ООО Braining Group\" OR \"АО Braining Group\" OR \"ЗАО Braining Group\" OR \"ИП Braining Group\" OR \"braining.group\")",
+    "cleaned": true
+  },
+  {
+    "name": "Brandmatica",
+    "query": "WORKPLACE_ORGANIZATION:(\"Brandmatica\" OR \"ООО Brandmatica\" OR \"АО Brandmatica\" OR \"ЗАО Brandmatica\" OR \"ИП Brandmatica\" OR \"brandmatica.ru\" OR \"brandmatica\" OR \"брендматика\")",
+    "cleaned": false
+  },
+  {
+    "name": "GLAVNOE SOBYTIE",
+    "query": "WORKPLACE_ORGANIZATION:(\"GLAVNOE SOBYTIE\" OR \"ООО GLAVNOE SOBYTIE\" OR \"АО GLAVNOE SOBYTIE\" OR \"ЗАО GLAVNOE SOBYTIE\" OR \"ИП GLAVNOE SOBYTIE\" OR \"glavnoesobytie.ru\" OR \"glavnoesobytie\" OR \"главное событие\")",
+    "cleaned": false
+  },
+  {
+    "name": "GOOD MATTERS",
+    "query": "WORKPLACE_ORGANIZATION:(\"GOOD MATTERS\" OR \"ООО GOOD MATTERS\" OR \"АО GOOD MATTERS\" OR \"ЗАО GOOD MATTERS\" OR \"ИП GOOD MATTERS\" OR \"goodmatters.works\" OR \"goodmatters\" OR \"гуд мэттерс\")",
+    "cleaned": false
+  },
+  {
+    "name": "ДИРЕКЦИЯ ВСЕГО",
+    "query": "WORKPLACE_ORGANIZATION:(\"ДИРЕКЦИЯ ВСЕГО\" OR \"ООО ДИРЕКЦИЯ ВСЕГО\" OR \"АО ДИРЕКЦИЯ ВСЕГО\" OR \"ЗАО ДИРЕКЦИЯ ВСЕГО\" OR \"ИП ДИРЕКЦИЯ ВСЕГО\" OR \"vsego.agency\" OR \"vsego\")",
+    "cleaned": false
+  },
+  {
+    "name": "EVERGREEN Solutions",
+    "query": "WORKPLACE_ORGANIZATION:(\"EVERGREEN Solutions\" OR \"ООО EVERGREEN Solutions\" OR \"АО EVERGREEN Solutions\" OR \"ЗАО EVERGREEN Solutions\" OR \"ИП EVERGREEN Solutions\" OR \"evergreensolutions.space\" OR \"evergreensolutions\" OR \"эвергрин\")",
+    "cleaned": false
+  },
+  {
+    "name": "Imagine Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"Imagine Group\" OR \"ООО Imagine Group\" OR \"АО Imagine Group\" OR \"ЗАО Imagine Group\" OR \"ИП Imagine Group\" OR \"imgevent.ru\" OR \"imgevent\" OR \"имэджин\")",
+    "cleaned": false
+  },
+  {
+    "name": "Инсайт Люди Ивенты",
+    "query": "WORKPLACE_ORGANIZATION:(\"Инсайт Люди Ивенты\" OR \"ООО Инсайт Люди Ивенты\" OR \"АО Инсайт Люди Ивенты\" OR \"ЗАО Инсайт Люди Ивенты\" OR \"ИП Инсайт Люди Ивенты\" OR \"insightpeople.ru\" OR \"insightpeople\")",
+    "cleaned": false
+  },
+  {
+    "name": "КАКИЕ ЛЮДИ",
+    "query": "WORKPLACE_ORGANIZATION:(\"КАКИЕ ЛЮДИ\" OR \"ООО КАКИЕ ЛЮДИ\" OR \"АО КАКИЕ ЛЮДИ\" OR \"ЗАО КАКИЕ ЛЮДИ\" OR \"ИП КАКИЕ ЛЮДИ\" OR \"kakieludi.ooo\" OR \"kakieludi\")",
+    "cleaned": false
+  },
+  {
+    "name": "Fabrika",
+    "query": "WORKPLACE_ORGANIZATION:(\"Fabrika\" OR \"ООО Fabrika\" OR \"АО Fabrika\" OR \"ЗАО Fabrika\" OR \"ИП Fabrika\" OR \"fabrika.events\" OR \"fabrika\")",
+    "cleaned": false
+  },
+  {
+    "name": "COMMUNICATOR Creative Events",
+    "query": "WORKPLACE_ORGANIZATION:(\"COMMUNICATOR Creative Events\" OR \"ООО COMMUNICATOR Creative Events\" OR \"АО COMMUNICATOR Creative Events\" OR \"ЗАО COMMUNICATOR Creative Events\")",
+    "cleaned": false
+  },
+  {
+    "name": "CONNECT EVENT",
+    "query": "WORKPLACE_ORGANIZATION:(\"CONNECT EVENT\" OR \"ООО CONNECT EVENT\" OR \"АО CONNECT EVENT\" OR \"ЗАО CONNECT EVENT\" OR \"ИП CONNECT EVENT\" OR \"connect-event.ru\" OR \"connect-event\" OR \"коннект евент\")",
+    "cleaned": false
+  },
+  {
+    "name": "MAKE GROUP",
+    "query": "WORKPLACE_ORGANIZATION:(\"MAKE GROUP\" OR \"ООО MAKE GROUP\" OR \"АО MAKE GROUP\" OR \"ЗАО MAKE GROUP\" OR \"ИП MAKE GROUP\" OR \"event-make.ru\" OR \"event-make\" OR \"мейк групп\")",
+    "cleaned": false
+  },
+  {
+    "name": "Manyways Network",
+    "query": "WORKPLACE_ORGANIZATION:(\"Manyways Network\" OR \"ООО Manyways Network\" OR \"АО Manyways Network\" OR \"ЗАО Manyways Network\" OR \"ИП Manyways Network\" OR \"manywaysnetwork.ru\" OR \"manywaysnetwork\" OR \"мэннивэйс\")",
+    "cleaned": false
+  },
+  {
+    "name": "MD Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"MD Group\" OR \"ООО MD Group\" OR \"АО MD Group\" OR \"ЗАО MD Group\" OR \"ИП MD Group\" OR \"Marketing Division\")",
+    "cleaned": true
+  },
+  {
+    "name": "NIGHT STREET",
+    "query": "WORKPLACE_ORGANIZATION:(\"NIGHT STREET\" OR \"ООО NIGHT STREET\" OR \"АО NIGHT STREET\" OR \"ЗАО NIGHT STREET\" OR \"ИП NIGHT STREET\" OR \"night-street.ru\" OR \"night-street\" OR \"найт стрит\")",
+    "cleaned": false
+  },
+  {
+    "name": "PR 4 event",
+    "query": "WORKPLACE_ORGANIZATION:(\"PR 4 event\" OR \"ООО PR 4 event\" OR \"АО PR 4 event\" OR \"ЗАО PR 4 event\" OR \"ИП PR 4 event\" OR \"pr-b2b.ru\" OR \"pr-b2b\")",
+    "cleaned": false
+  },
+  {
+    "name": "Private case",
+    "query": "WORKPLACE_ORGANIZATION:(\"Private case\" OR \"ООО Private case\" OR \"АО Private case\" OR \"ЗАО Private case\" OR \"ИП Private case\" OR \"privatecase.ru\" OR \"privatecase\" OR \"приват кейс\")",
+    "cleaned": false
+  },
+  {
+    "name": "GREAT EVENT",
+    "query": "WORKPLACE_ORGANIZATION:(\"GREAT EVENT\" OR \"ООО GREAT EVENT\" OR \"АО GREAT EVENT\" OR \"ЗАО GREAT EVENT\" OR \"ИП GREAT EVENT\" OR \"great-events.ru\" OR \"great-events\" OR \"грейт евент\")",
+    "cleaned": false
+  },
+  {
+    "name": "Director`s Cut",
+    "query": "WORKPLACE_ORGANIZATION:(\"Director`s Cut\" OR \"ООО Director`s Cut\" OR \"АО Director`s Cut\" OR \"ЗАО Director`s Cut\" OR \"ИП Director`s Cut\" OR \"Directors Cut\" OR \"директорс кат\")",
+    "cleaned": false
+  },
+  {
+    "name": "Mellennium Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"Mellennium Group\" OR \"ООО Mellennium Group\" OR \"АО Mellennium Group\" OR \"ЗАО Mellennium Group\" OR \"ИП Mellennium Group\" OR \"mellennium.ru\" OR \"mellennium\" OR \"мелленниум\")",
+    "cleaned": false
+  },
+  {
+    "name": "MON креативное бюро",
+    "query": "WORKPLACE_ORGANIZATION:(\"MON креативное бюро\" OR \"ООО MON креативное бюро\" OR \"АО MON креативное бюро\" OR \"ЗАО MON креативное бюро\" OR \"ИП MON креативное бюро\" OR \"mon.events\")",
+    "cleaned": true
+  },
+  {
+    "name": "PRO-interactive",
+    "query": "WORKPLACE_ORGANIZATION:(\"PRO-interactive\" OR \"ООО PRO interactive\" OR \"АО PRO interactive\" OR \"ЗАО PRO interactive\" OR \"ИП PRO interactive\" OR \"PRO interactive\" OR \"про интерактив\")",
+    "cleaned": false
+  },
+  {
+    "name": "Promotion Trade",
+    "query": "WORKPLACE_ORGANIZATION:(\"Promotion Trade\" OR \"ООО Promotion Trade\" OR \"АО Promotion Trade\" OR \"ЗАО Promotion Trade\" OR \"ИП Promotion Trade\" OR \"promotiontrade.ru\" OR \"promotiontrade\" OR \"промоушн трейд\")",
+    "cleaned": false
+  },
+  {
+    "name": "SOBYTIE",
+    "query": "WORKPLACE_ORGANIZATION:(\"SOBYTIE Communications\" OR \"ООО SOBYTIE Communications\" OR \"АО SOBYTIE Communications\" OR \"ЗАО SOBYTIE Communications\" OR \"ИП SOBYTIE Communications\" OR \"so-bytie.ru\" OR \"so-bytie\")",
+    "cleaned": true
+  },
+  {
+    "name": "Style Project",
+    "query": "WORKPLACE_ORGANIZATION:(\"Style Project\" OR \"ООО Style Project\" OR \"АО Style Project\" OR \"ЗАО Style Project\" OR \"ИП Style Project\" OR \"styleproject.ru\" OR \"styleproject\" OR \"стайл проджект\")",
+    "cleaned": false
+  },
+  {
+    "name": "Support Partners",
+    "query": "WORKPLACE_ORGANIZATION:(\"Support Partners\" OR \"ООО Support Partners\" OR \"АО Support Partners\" OR \"ЗАО Support Partners\" OR \"ИП Support Partners\" OR \"support-partners.ru\" OR \"support-partners\" OR \"саппорт партнерс\")",
+    "cleaned": false
+  },
+  {
+    "name": "For People Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"For People Group\" OR \"ООО For People Group\" OR \"АО For People Group\" OR \"ЗАО For People Group\" OR \"ИП For People Group\" OR \"eventforpeople.ru\" OR \"eventforpeople\" OR \"фор пипл\")",
+    "cleaned": false
+  },
+  {
+    "name": "EMG",
+    "query": "WORKPLACE_ORGANIZATION:(\"ООО EMG\" OR \"E:MG\" OR \"ЭМГ ПРОМО\" OR \"ИП EMG\" OR \"emg.ru\" OR \"EMG Professionals\" OR \"European media group\")",
+    "cleaned": true
+  },
+  {
+    "name": "MOSCOW EVENT",
+    "query": "WORKPLACE_ORGANIZATION:(\"MOSCOW EVENT\" OR \"ООО MOSCOW EVENT\" OR \"АО MOSCOW EVENT\" OR \"ЗАО MOSCOW EVENT\" OR \"ИП MOSCOW EVENT\" OR \"mskevent.com\" OR \"mskevent\" OR \"москоу евент\" OR \"москоу ивент\")",
+    "cleaned": false
+  },
+  {
+    "name": "MosEvent",
+    "query": "WORKPLACE_ORGANIZATION:(\"MosEvent\" OR \"MEV\" OR \"ООО MosEvent\" OR \"АО MosEvent\" OR \"ЗАО MosEvent\" OR \"ИП MosEvent\" OR \"mosevent.ru\" OR \"mosevent\" OR \"мосэвент\" OR \"мосивент\")",
+    "cleaned": false
+  },
+  {
+    "name": "Secret Point",
+    "query": "WORKPLACE_ORGANIZATION:(\"Secret Point\" OR \"ООО Secret Point\" OR \"АО Secret Point\" OR \"ЗАО Secret Point\" OR \"ИП Secret Point\" OR \"secret-point.ru\" OR \"secret-point\" OR \"сикрет поинт\")",
+    "cleaned": false
+  },
+  {
+    "name": "Eventum Premo",
+    "query": "WORKPLACE_ORGANIZATION:(\"Eventum Premo\" OR \"ООО Eventum Premo\" OR \"АО Eventum Premo\" OR \"ооо ивентум премо\" OR \"ивентум премо\" OR \"eventum-premo.ru\" OR \"eventum-premo\" OR \"эвентум премо\")",
+    "cleaned": false
+  },
+  {
+    "name": "Team for Dream",
+    "query": "WORKPLACE_ORGANIZATION:(\"Team for Dream\" OR \"TFD\" OR \"ООО Team for Dream\" OR \"Тиэфди\" OR \"Ти эф ди\" OR \"фанни плейс\" OR \"tfd-agency.ru\" OR \"tfd-agency\")",
+    "cleaned": false
+  },
+  {
+    "name": "UPDATE agency",
+    "query": "WORKPLACE_ORGANIZATION:(\"UPDATE agency\" OR \"ООО UPDATE\" OR \"АО UPDATE\" OR \"ЗАО UPDATE\" OR \"ИП UPDATE\" OR \"update.agency\")",
+    "cleaned": false
+  },
+  {
+    "name": "Vinci Agency",
+    "query": "WORKPLACE_ORGANIZATION:(\"Vinci Agency\" OR \"ООО Vinci Agency\" OR \"АО Vinci Agency\" OR \"ЗАО Vinci Agency\" OR \"ИП Vinci Agency\" OR \"vincipr.com\" OR \"vincipr\")",
+    "cleaned": true
+  },
+  {
+    "name": "WONDER agency",
+    "query": "WORKPLACE_ORGANIZATION:(\"WONDER agency\" OR \"ИП Кузовкина Анна Владимировна\" OR \"уандер\" OR \"ЗАО WONDER\" OR \"ИП WONDER\" OR \"wonderevents.ru\" OR \"wonderevents\" OR \"вандер\")",
+    "cleaned": false
+  },
+  {
+    "name": "WORLDS agency",
+    "query": "WORKPLACE_ORGANIZATION:(\"WORLDS agency\" OR \"АО WORLDS\" OR \"ЗАО WORLDS\" OR \"ООО ворлдс\" OR \"wrlds.ru\" OR \"wrlds\" OR \"ворлдс\" OR \"подъежики\")",
+    "cleaned": false
+  },
+  {
+    "name": "Xarizma Group",
+    "query": "WORKPLACE_ORGANIZATION:(\"Xarizma Group\" OR \"ооо харизма групп\" OR \"АО Xarizma Group\" OR \"ЗАО Xarizma Group\" OR \"ИП Xarizma Group\" OR \"xarizma.group\" OR \"xarizma\")",
+    "cleaned": false
+  },
+  {
+    "name": "Активный персонал",
+    "query": "WORKPLACE_ORGANIZATION:(\"Активный персонал\" OR \"ООО Активный персонал\" OR \"crpap.ru\" OR \"ЗАО Активный персонал\" OR \"ИП Активный персонал\" OR \"golfbs.ru\" OR \"golfbs\")",
+    "cleaned": false
+  },
+  {
+    "name": "YAKOVLEVGROUP",
+    "query": "WORKPLACE_ORGANIZATION:(\"YAKOVLEVGROUP\" OR \"ООО YAKOVLEVGROUP\" OR \"яковлев групп\" OR \"ИП Яковлев Роман Сергеевич\" OR \"YAKOVLEV GROUP\" OR \"yakovlevgroup.pro\" OR \"yakovlevgroup\")",
+    "cleaned": true
+  },
+  {
+    "name": "ИВЕНТОЛОГИЯ",
+    "query": "WORKPLACE_ORGANIZATION:(\"ИВЕНТОЛОГИЯ\" OR \"ООО ИВЕНТОЛОГИЯ\" OR \"АО ИВЕНТОЛОГИЯ\" OR \"ЗАО ИВЕНТОЛОГИЯ\" OR \"ИП ИВЕНТОЛОГИЯ\" OR \"eventologia.ru\" OR \"eventologia\")",
+    "cleaned": false
+  },
+  {
+    "name": "INSTALL PROFI",
+    "query": "WORKPLACE_ORGANIZATION:(\"INSTALL PROFI\" OR \"ООО INSTALL PROFI\" OR \"АО INSTALL PROFI\" OR \"ЗАО INSTALL PROFI\" OR \"ИП INSTALL PROFI\" OR \"installprofi.com\" OR \"installprofi\" OR \"инсталл профи\")",
+    "cleaned": false
+  },
+  {
+    "name": "Corporate Travel",
+    "query": "WORKPLACE_ORGANIZATION:(\"Corporate Travel\" OR \"ООО Корпорэйт Трэвел\" OR \"АО Corporate Travel\" OR \"ЗАО Corporate Travel\" OR \"ИП Corporate Travel\" OR \"corptravel.ru\" OR \"corptravel\")",
+    "cleaned": false
+  },
+  {
+    "name": "MICE.Capital",
+    "query": "WORKPLACE_ORGANIZATION:(\"MICE.Capital\" OR \"ООО MICE Capital\" OR \"ООО Пам Студио\" OR \"майс кэпитал\" OR \"ИП MICE Capital\" OR \"mice.capital\")",
+    "cleaned": false
+  },
+  {
+    "name": "MICEVERSA",
+    "query": "WORKPLACE_ORGANIZATION:(\"MICEVERSA\" OR \"MV\" OR \"ООО МАЙСЭВЁРСА\" OR \"АО MICEVERSA\" OR \"ЗАО MICEVERSA\" OR \"MICE VERSA\" OR \"miceversa.ru\" OR \"miceversa\")",
+    "cleaned": false
+  },
+  {
+    "name": "ТС-Групп",
+    "query": "WORKPLACE_ORGANIZATION:(\"TS Media\" OR \"ООО ТС-Групп\" OR \"ТС-Групп\" OR \"TS group\" OR \"ts-group.msk.ru\" OR \"ts.media\" OR \"tourstudio.ru\")",
+    "cleaned": false
+  },
+  {
+    "name": "Upjet",
+    "query": "WORKPLACE_ORGANIZATION:(\"Upjet\" OR \"ООО АПДЖЕТ\" OR \"Up jet\" OR \"upjet.ru\" OR \"ИП Upjet\" OR \"апджет\")",
+    "cleaned": false
+  },
+  {
+    "name": "ADA Symposium",
+    "query": "WORKPLACE_ORGANIZATION:(\"ADA Symposium\" OR \"ООО ADA Symposium\" OR \"АО Ада-Симпозиум\" OR \"Ада Симпозиум\" OR \"ADA Symposium\" OR \"ada-symposium.com\" OR \"ada-symposium\")",
+    "cleaned": false
+  },
+  {
+    "name": "Be Brand People",
+    "query": "WORKPLACE_ORGANIZATION:(\"Be Brand People\" OR \"Би бренд\" OR \"Би брэнд\" OR \"БИ БРЭНД ПИПЛ\" OR \"ИП Be Brand People\" OR \"bebrand.ru\" OR \"bebrand\")",
+    "cleaned": false
+  },
+  {
+    "name": "Brooke Event Engineering",
+    "query": "WORKPLACE_ORGANIZATION:(\"Brooke Event Engineering\" OR \"брук ивент инжениринг\" OR \"АО Brooke Event Engineering\" OR \"ООО брук ивентс\" OR \"Brooke агентство\" OR \"brooke.ru\")",
+    "cleaned": false
+  },
+  {
+    "name": "Лира",
+    "query": "WORKPLACE_ORGANIZATION:(\"Lyra\" OR \"ООО Lyra\" OR \"АО Lyra\" OR \"ИП Lyra\" OR \"lyra-agency.ru\" OR \"lyra-agency\" OR \"лира агентство\")",
+    "cleaned": true
+  },
+  {
+    "name": "ERA agency",
+    "query": "WORKPLACE_ORGANIZATION:(\"ERA agency\" OR \"ООО ERA\" OR \"era агентство\" OR \"Эра ивент\" OR \"ИП ERA\" OR \"eraevent.ru\" OR \"era event\")",
+    "cleaned": false
+  },
+  {
+    "name": "Louder",
+    "query": "WORKPLACE_ORGANIZATION:(\"Louder\" OR \"ООО Louder\" OR \"АО Louder\" OR \"ЗАО Louder\" OR \"ИП Louder\" OR \"louder.ru\")",
+    "cleaned": true
+  },
+  {
+    "name": "marketemotion",
+    "query": "WORKPLACE_ORGANIZATION:(\"ME Group\" OR \"MEG\" OR \"marketemotion.ru\" OR \"АО ME Group\" OR \"ЗАО ME Group\" OR \"ME360\" OR \"megroup.ru\" OR \"megroup\" OR \"market emotion\"OR \"маркет эмоушн\" OR \"маркет эмоушн корпорейшн\")",
+    "cleaned": false
+  },
+  {
+    "name": "MEL Creative",
+    "query": "WORKPLACE_ORGANIZATION:(\"MEL Creative\" OR \"Мел креатив\" OR \"ООО мел-ивент\" OR \"мел агентство\" OR \"ЗАО MEL Creative\" OR \"ИП MEL Creative\" OR \"mel-creative.ru\" OR \"mel-creative\")",
+    "cleaned": false
+  },
+  {
+    "name": "Marketing Division",
+    "query": "WORKPLACE_ORGANIZATION:(\"Marketing Division\" OR \"MD agency\" OR \"ООО МД-ГРУПП\" OR \"АО Marketing Division\" OR \"ЗАО Marketing Division\" OR \"ИП Marketing Division\" OR \"marketingdivision.ru\" OR \"marketingdivision\" OR \"маркетинг дивижн\")",
+    "cleaned": false
+  },
+  {
+    "name": "Slon Event Stories",
+    "query": "WORKPLACE_ORGANIZATION:(\"Slon Event Stories\" OR \"slonstories.ru\" OR \"АО Slon Event Stories\" OR \"ЗАО Slon Event Stories\" OR \"ИП Slon Event Stories\" OR \"слон сторис\" OR \"slonstories\" )",
+    "cleaned": false
+  },
+  {
+    "name": "Френдс Ивентс",
+    "query": "WORKPLACE_ORGANIZATION:(\"Френдс Ивентс\" OR \"ФИ\" OR \"ООО Френдс Ивентс\" OR \"АО Френдс Ивентс\" OR \"ЗАО Френдс Ивентс\" OR \"ФрендсИвентс.рф\" OR \"friends-events.ru\" OR \"friends-events\")",
+    "cleaned": false
+  },
+  {
+    "name": "HQ.events",
+    "query": "WORKPLACE_ORGANIZATION:(\"HQ.events\" OR \"HQE\" OR \"HQ events\" OR \"АО HQ events\" OR \"HQ агентство\" OR \"ИП HQ events\" OR \"hq.events\"OR \"headquarters events\")",
+    "cleaned": false
+  },
+  {
+    "name": "ARS Communications",
+    "query": "WORKPLACE_ORGANIZATION:(\"ARS Communications\" OR \"ООО ARS Communications\" OR \"АО ARS Communications\" OR \"ЗАО ARS Communications\" OR \"ИП ARS Communications\" OR \"arscom.ru\" OR \"arscom\" OR \"ars com\"OR \"арс коммуникации\" OR \"ооо Арс Комьюникейшнс Групп\")",
+    "cleaned": false
+  },
+  {
+    "name": "ИВЕНТОЛОГИЯ",
+    "query": "WORKPLACE_ORGANIZATION:(\"ИВЕНТОЛОГИЯ\" OR \"ООО ИВЕНТОЛОГИЯ\" OR \"АО ИВЕНТОЛОГИЯ\" OR \"ооо ИВЕНТОЛОГИЯ\" OR \"ИП ИВЕНТОЛОГИЯ\" OR \"eventologia.ru\" OR \"eventologia\")",
+    "cleaned": false
+  },
+  {
+    "name": "SPN Communications",
+    "query": "WORKPLACE_ORGANIZATION:(\"SPN Communications\" OR \"ООО SPN Communications\" OR \"АО SPN Communications\" OR \"ООО Спн.Коммуникации\" OR \"ИП SPN Communications\" OR \"spncomms.com\" OR \"spncomms\" OR \"spn фабрика коммуникаций\" OR \"СПН Коммьюникейшнз\" OR \"SPN Ogilvy\")",
+    "cleaned": true
+  },
+  {
+    "name": "ИнтелСпорт",
+    "query": "WORKPLACE_ORGANIZATION:(\"ИнтелСпорт\" OR \"intelsport.ru\" OR \"intel sport\" OR \"intelsport\" OR \"ООО ИнтелСпорт\" OR \"АО ИнтелСпорт\" OR \"ЗАО ИнтелСпорт\" OR \"ИП ИнтелСпорт\")",
+    "cleaned": false
+  },
+  {
+    "name": "Larni Lane",
+    "query": "WORKPLACE_ORGANIZATION:(\"Larni Lane\" OR \"ООО Larni Lane\" OR \"АО Larni Lane\" OR \"ЗАО Larni Lane\" OR \"ИП Larni Lane\" OR \"larnilane.com\" OR \"larnilane\" OR \"ларни лейн\" OR \"ООО Ларнилэйн\" OR \"ларни лэйн\")",
+    "cleaned": true
+  },
+  {
+    "name": "RedDay",
+    "query": "WORKPLACE_ORGANIZATION:(\"REDDAY\" OR \"RED DAY\" OR \"redday.events\" OR \"redday\" OR \"реддей\" OR \"рэд дэй\" OR \"ООО Рэддэй\" )",
+    "cleaned": false
+  },
+  {
+    "name": "FREEMOTION GROUP",
+    "query": "WORKPLACE_ORGANIZATION:(\"FREEMOTION GROUP\" OR \"FG\" OR \"ООО FREEMOTION GROUP\" OR \"АО FREEMOTION GROUP\" OR \"ЗАО FREEMOTION GROUP\" OR \"ИП FREEMOTION GROUP\" OR \"freemotion.pro\" OR \"freemotion\" OR \"фримоушн\")",
+    "cleaned": false
+  },
+  {
+    "name": "ЭкспоФорум-Интернэшнл",
+    "query": "WORKPLACE_ORGANIZATION:(\"ЭкспоФорум-Интернэшнл\" OR \"ЭФИ\" OR \"ООО ЭкспоФорум Интернэшнл\" OR \"АО ЭкспоФорум Интернэшнл\" OR \"ЗАО ЭкспоФорум Интернэшнл\" OR \"ИП ЭкспоФорум Интернэшнл\")",
+    "cleaned": false
+  }
+]

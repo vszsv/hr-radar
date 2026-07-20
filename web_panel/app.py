@@ -209,6 +209,7 @@ async def api_get_controls(key: str = Query("")):
                 "fw_import_approved": af.get("fw_import_approved", True),
                 "fw_import_reviewed": af.get("fw_import_reviewed", False),
                 "fw_import_rejected": af.get("fw_import_rejected", False),
+                "open_contacts": af.get("open_contacts", False),
                 "thresholds": af.get("thresholds", {
                     "approve": load_config().get("score_threshold_approve", 7),
                     "reject": load_config().get("score_threshold_reject", 4),
@@ -261,6 +262,7 @@ async def api_get_autoflow(profile_id: str, job_slug: str, key: str = Query(""))
         "fw_import_approved": True,
         "fw_import_reviewed": False,
         "fw_import_rejected": False,
+        "open_contacts": False,
         "thresholds": {
             "approve": load_config().get("score_threshold_approve", 7),
             "reject": load_config().get("score_threshold_reject", 4),
@@ -279,7 +281,7 @@ async def api_set_autoflow(profile_id: str, job_slug: str, request: Request, key
     p = controls.setdefault("profiles", {}).setdefault(profile_id, {"enabled": True, "report_enabled": True, "jobs": {}})
     af = p.setdefault("autoflow", {}).setdefault(job_slug, {})
     # Update only provided fields
-    for field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected"):
+    for field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected", "open_contacts"):
         if field in body:
             af[field] = bool(body[field])
     if "thresholds" in body:
@@ -295,7 +297,7 @@ async def api_toggle_autoflow(profile_id: str, job_slug: str, request: Request, 
     controls = load_controls()
     p = controls.setdefault("profiles", {}).setdefault(profile_id, {"enabled": True, "report_enabled": True, "jobs": {}})
     af = p.setdefault("autoflow", {}).setdefault(job_slug, {"enabled": False})
-    if field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected"):
+    if field in ("enabled", "deep_scoring", "fw_import_approved", "fw_import_reviewed", "fw_import_rejected", "open_contacts"):
         af[field] = not af.get(field, False)
     save_controls(controls)
     return {"ok": True, "autoflow": af}
