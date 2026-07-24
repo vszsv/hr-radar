@@ -932,10 +932,10 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
         fw_vacancy_id = routes.get(route_key)
         
         if fw_vacancy_id and deep_results:
-            imported, dupes, errors = run_autoflow_fw_import(
+            imported, dupes, errors, contacts_opened, contacts_manual = run_autoflow_fw_import(
                 deep_results, int(fw_vacancy_id), af, t_approve, t_reject, panel_config.get("default_model", openai_config.get("model", "gpt-5.2"))
             )
-            print(f"  ⚡ FW import: {imported} new, {dupes} dupes, {errors} errors")
+            print(f"  ⚡ FW import: {imported} new, {dupes} dupes, {errors} errors | contacts: {contacts_opened} open, {contacts_manual} manual")
             
             # Send autoflow summary to Telegram
             approved_count = len([r for r in deep_results if r.get("score", 0) >= t_approve])
@@ -968,6 +968,8 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                     "imported": imported,
                     "dupes": dupes,
                     "errors": errors,
+                    "contacts_opened": contacts_opened,
+                    "contacts_manual": contacts_manual,
                     "candidates": candidates_detail,
                 }
                 af["last_run"] = last_run
@@ -984,6 +986,8 @@ def process_profile(profile_name: str, config_data: Dict, controls: Optional[Dic
                 f"🤖 Глубокий скоринг: ✅{approved_count} 👁{reviewed_count} ❌{rejected_count}\n"
                 f"📤 Импорт в FW: {imported} новых, {dupes} дубликатов"
             )
+            if af.get("open_contacts"):
+                summary += f"\n🔍 Контакты: ✅{contacts_opened} открыто, 👁{contacts_manual} на проверку"
             try:
                 requests.post(
                     f"https://api.telegram.org/bot{profile.telegram_token}/sendMessage",
@@ -1131,18 +1135,20 @@ def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
                            autoflow_cfg: Dict, t_approve: int, t_reject: int,
                            model: str) -> tuple:
     """Import scored candidates to FriendWork based on autoflow config.
-    Returns (imported, duplicates, errors)."""
+    Returns (imported, duplicates, errors, contacts_opened, contacts_manual)."""
     try:
         from fw_import import import_hh_to_fw, get_fw_headers
     except ImportError:
         print("  ⚠️ fw_import not available")
-        return (0, 0, 0)
-    
+        return (0, 0, 0, 0, 0)
+
     headers = get_fw_headers()
     imported = 0
     dupes = 0
     errors = 0
-    
+    contacts_opened = 0   # контакты авто-прикреплены (attach)
+    contacts_manual = 0   # найдены, но на ручную проверку (ambiguous)
+
     for r in deep_results:
         score = r.get("score", 0)
         fw_status = r.get("fw_status", "Новый")
@@ -1184,15 +1190,20 @@ def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
 
             if res.get("ok"):
                 imported += 1
+                dec = res.get("contacts", "")
+                if dec == "attach":
+                    contacts_opened += 1
+                elif dec == "ambiguous":
+                    contacts_manual += 1
             else:
                 dupes += 1
         except Exception as e:
             print(f"  ⚠️ FW import error for {resume_id}: {e}")
             errors += 1
-        
+
         time.sleep(1)  # rate limit
-    
-    return (imported, dupes, errors)
+
+    return (imported, dupes, errors, contacts_opened, contacts_manual)
 
 
 def main():

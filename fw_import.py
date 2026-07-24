@@ -138,13 +138,13 @@ def open_contacts_by_photo(hh_resume: dict, hh_url: str, photo_b64: str = None) 
     """Открыть контакты кандидата по фото через contacts-service (HTTP).
 
     hr-radar НЕ держит секрет юзербота и не дёргает бот напрямую — всё через сервис,
-    который централизует дедуп/бюджет/аудит. Возвращает категории контактов
-    (phones/emails/telegram/whatsapp/vk/instagram/other_socials). Пусто, если сервис
-    не настроен, нет hh_url или нет фото — вызывающий код это переживает.
+    который централизует дедуп/бюджет/аудит И политику доверия (не прикреплять контакты
+    «двойников»). Возвращает {"contacts": {категории}, "decision": attach|ambiguous|none,
+    "note": <текст для карточки>, "candidates": [...]}. При decision!=attach contacts пусты.
     """
-    categories = _empty_contacts()
+    out = {"contacts": _empty_contacts(), "decision": "none", "note": "", "candidates": []}
     if not hh_url or not CONTACTS_SERVICE_URL:
-        return categories
+        return out
 
     # Фото в base64: уже полученное, либо скачиваем photo['500'].
     if not photo_b64:
@@ -157,26 +157,34 @@ def open_contacts_by_photo(hh_resume: dict, hh_url: str, photo_b64: str = None) 
             except Exception:
                 photo_b64 = None
     if not photo_b64:
-        return categories
+        return out
 
+    # ФИО кандидата из резюме (для сверки «тот ли человек»); может быть скрыто на HH.
+    cand_name = " ".join(filter(None, [hh_resume.get('last_name'),
+                                       hh_resume.get('first_name'),
+                                       hh_resume.get('middle_name')])).strip()
     try:
         resp = requests.post(
             f"{CONTACTS_SERVICE_URL}/v1/open-contacts",
             headers={"X-Auth-Token": CONTACTS_SERVICE_TOKEN},
-            json={"identity": hh_url, "photo_b64": photo_b64, "caller": "hr-radar"},
+            json={"identity": hh_url, "photo_b64": photo_b64, "caller": "hr-radar",
+                  "candidate_name": cand_name},
             timeout=CONTACTS_TIMEOUT)
         if resp.status_code == 200:
             data = resp.json()
             for k in _CONTACT_CATEGORIES:
                 v = data.get(k)
                 if isinstance(v, list):
-                    categories[k] = [x for x in v if x]
+                    out["contacts"][k] = [x for x in v if x]
+            out["decision"] = data.get("decision", "none")
+            out["note"] = data.get("note", "")
+            out["candidates"] = data.get("candidates", [])
         else:
             logger.warning(f"contacts-service {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
         logger.warning(f"contacts-service call failed for {hh_url}: {e}")
 
-    return categories
+    return out
 
 
 def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
@@ -422,12 +430,20 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
         candidate["FileContent"] = pdf_data_uri
 
     # 12b. Optionally open extra contacts by photo (PAID, deduped, best-effort).
+    # Прикрепляем контакты ТОЛЬКО при decision=="attach" (уверенное совпадение).
+    # При "ambiguous" (двойники) контакты НЕ прикрепляем, а вешаем заметку на карточку.
+    contacts_decision = ""   # "attach" | "ambiguous" | "none" | "" (не запускалось)
     if open_contacts:
         try:
             found = open_contacts_by_photo(hh, hh_url, photo_b64=photo_b64)
-            if any(found.values()):
-                merge_contacts_into_candidate(candidate, found)
-                logger.info(f"open_contacts: merged extra contacts for {hh_url}")
+            contacts_decision = found.get("decision", "none")
+            if found["decision"] == "attach" and any(found["contacts"].values()):
+                merge_contacts_into_candidate(candidate, found["contacts"])
+                logger.info(f"open_contacts: attached contacts for {hh_url}")
+            elif found["decision"] == "ambiguous" and found["note"]:
+                # note уже содержит список кандидатов с телефонами для ручной проверки
+                candidate["Comment"] = (candidate.get("Comment", "") + "\n" + found["note"]).strip()
+                logger.info(f"open_contacts: ambiguous for {hh_url}, note added")
         except Exception as e:
             logger.warning(f"open_contacts failed for {hh_url}: {e}")
 
@@ -469,10 +485,11 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
                 import_log[hh_url] = candidate_id
                 _save_import_log(import_log)
             return {"ok": True, "candidate_id": candidate_id,
-                    "message": "Импортирован"}
+                    "message": "Импортирован", "contacts": contacts_decision}
         else:
             return {"ok": True, "candidate_id": candidate_id,
-                    "message": f"Создан, но не привязан к вакансии: {r2.text[:200]}"}
+                    "message": f"Создан, но не привязан к вакансии: {r2.text[:200]}",
+                    "contacts": contacts_decision}
     
     except Exception as e:
         return {"ok": False, "candidate_id": None, "message": f"Error: {e}"}
