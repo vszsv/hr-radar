@@ -1190,13 +1190,14 @@ def run_autoflow_fw_import(deep_results: List[Dict], fw_vacancy_id: int,
 
             if res.get("ok"):
                 imported += 1
-                dec = res.get("contacts", "")
-                if dec == "attach":
-                    contacts_opened += 1
-                elif dec == "ambiguous":
-                    contacts_manual += 1
             else:
                 dupes += 1
+            # контакты считаем в обоих случаях: и для новых, и для дубликатов (их карточки тоже правим)
+            dec = res.get("contacts", "")
+            if dec == "attach":
+                contacts_opened += 1
+            elif dec == "ambiguous":
+                contacts_manual += 1
         except Exception as e:
             print(f"  ⚠️ FW import error for {resume_id}: {e}")
             errors += 1

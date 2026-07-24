@@ -187,6 +187,40 @@ def open_contacts_by_photo(hh_resume: dict, hh_url: str, photo_b64: str = None) 
     return out
 
 
+def _contacts_to_fw_array(contacts: dict) -> list:
+    """Категории контактов → массив для FW: [{Phone}, {E-mail}] (до 2 каждого)."""
+    arr = []
+    for p in contacts.get("phones", [])[:2]:
+        arr.append({"Phone": p})
+    for e in contacts.get("emails", [])[:2]:
+        arr.append({"E-mail": e})
+    return arr
+
+
+def write_contacts_to_existing(candidate_id, hh_resume: dict, hh_url: str, photo_b64: str = None) -> str:
+    """Открыть контакты по фото и вписать в УЖЕ СОЗДАННУЮ карточку FW.
+
+    Правка существующего кандидата: POST /Candidate/set с полем CandidateId (без него FW
+    создаёт дубль). Телефон/почта ложатся в communicationChannels карточки. Пишем только при
+    decision=="attach" (уверенное совпадение). Возвращает decision (attach/ambiguous/none/"").
+    """
+    if not CONTACTS_SERVICE_URL or not candidate_id:
+        return ""
+    found = open_contacts_by_photo(hh_resume, hh_url, photo_b64=photo_b64)
+    dec = found.get("decision", "none")
+    if dec == "attach":
+        arr = _contacts_to_fw_array(found["contacts"])
+        if arr:
+            try:
+                requests.post('https://api.friend.work/Candidate/set',
+                              headers=get_fw_headers(), timeout=30,
+                              json={"CandidateId": int(candidate_id), "Contacts": arr})
+                logger.info(f"contacts written to existing FW card {candidate_id}")
+            except Exception as e:
+                logger.warning(f"write contacts to existing {candidate_id} failed: {e}")
+    return dec
+
+
 def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
     """Merge photo-lookup contacts into the FW candidate payload, in place.
 
@@ -270,9 +304,11 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
             if check.status_code == 200 and len(histories) > 0:
                 # Collect unique vacancy IDs
                 job_ids = list({h.get('JobId') for h in histories if h.get('JobId')})
+                # Дубликат уже в FW — но контакты всё равно открываем и дописываем в его карточку.
+                contacts_dec = write_contacts_to_existing(cid, hh, hh_url) if open_contacts else ""
                 return {"ok": False, "candidate_id": cid,
                         "job_ids": job_ids,
-                        "message": f"Дубликат: [{cid}]"}
+                        "message": f"Дубликат: [{cid}]", "contacts": contacts_dec}
             # Candidate deleted — remove from log and re-import
             del import_log[hh_url]
             _save_import_log(import_log)
@@ -465,8 +501,11 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
                 if hh_url:
                     import_log[hh_url] = dupe_id
                     _save_import_log(import_log)
+                # Дубликат — дописываем контакты в его существующую карточку.
+                dcontacts = (write_contacts_to_existing(dupe_id, hh, hh_url, photo_b64=photo_b64)
+                             if open_contacts else "")
                 return {"ok": False, "candidate_id": dupe_id,
-                        "message": f"Дубликат: [{dupe_id}]"}
+                        "message": f"Дубликат: [{dupe_id}]", "contacts": dcontacts}
             return {"ok": False, "candidate_id": None,
                     "message": f"FW error: {msg} | {r.text[:300]}"}
         
