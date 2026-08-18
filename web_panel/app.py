@@ -1479,11 +1479,13 @@ def _transcribe_with_assemblyai(audio_path: str, api_key: str) -> str:
             "audio_url": upload_url,
             "speaker_labels": True,
             "language_code": "ru",
-            "speech_models": ["universal-3-pro", "universal-2"]
+            "speech_models": ["universal-3-5-pro", "universal-2"]
         },
         timeout=30
     )
-    create_resp.raise_for_status()
+    if create_resp.status_code != 200:
+        # Отдаём тело ответа наружу — иначе в откате на Whisper виден только глухой «400».
+        raise Exception(f"AssemblyAI create {create_resp.status_code}: {create_resp.text[:400]}")
     transcript_id = create_resp.json()["id"]
 
     # Step 3: Poll until complete (max 15 minutes)
