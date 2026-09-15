@@ -187,21 +187,53 @@ def open_contacts_by_photo(hh_resume: dict, hh_url: str, photo_b64: str = None) 
     return out
 
 
-def _contacts_to_fw_array(contacts: dict) -> list:
-    """Категории контактов → массив для FW: [{Phone}, {E-mail}] (до 2 каждого)."""
-    arr = []
-    for p in contacts.get("phones", [])[:2]:
-        arr.append({"Phone": p})
-    for e in contacts.get("emails", [])[:2]:
-        arr.append({"E-mail": e})
-    return arr
+_JUNK_NAME_PARTS = ("пользовател", "users", "аккаунт", "профил", "групп")
+# Только «сильные» фамильные окончания: -ин/-ина/-ко не берём (Алина, Марина, Ирина — имена).
+_SURNAME_ENDINGS = ("ов", "ова", "ев", "ева", "ёв", "ёва", "ский", "ская", "цкий", "цкая",
+                    "дзе", "швили", "ян")
+
+
+def _name_from_found(found: dict) -> dict:
+    """ФИО человека, чьи контакты прикрепили по фото → поля FW {LastName, FirstName[, MiddleName]}.
+
+    Берём того кандидата из списка, у кого общий телефон с прикреплёнными контактами (иначе
+    первого). Отсекаем мусор вместо имени («Пользователи yandex.ru», почта, цифры, одно слово).
+    Пустой dict — если decision != attach или имя не годится.
+    """
+    if found.get("decision") != "attach":
+        return {}
+    cands = found.get("candidates") or []
+    phones = set(found.get("contacts", {}).get("phones", []))
+    person = next((c for c in cands if phones & set(c.get("phones") or [])), cands[0] if cands else {})
+    words = (person.get("name") or "").split()
+    if not 2 <= len(words) <= 3:
+        return {}
+    joined = " ".join(words).lower()
+    if any(j in joined for j in _JUNK_NAME_PARTS) or \
+            not all(re.fullmatch(r"[A-Za-zА-Яа-яЁё]+(-[A-Za-zА-Яа-яЁё]+)?", w) for w in words):
+        return {}
+    words = ["-".join(p[:1].upper() + p[1:].lower() for p in w.split("-")) for w in words]
+    # «Имя Фамилия» (так бывает в соцсетях) → «Фамилия Имя»
+    if len(words) == 2 and words[1].lower().endswith(_SURNAME_ENDINGS) \
+            and not words[0].lower().endswith(_SURNAME_ENDINGS):
+        words.reverse()
+    out = {"LastName": words[0], "FirstName": words[1]}
+    if len(words) == 3:
+        out["MiddleName"] = words[2]
+    return out
+
+
+def _name_is_hidden(first_name, last_name) -> bool:
+    """В карточке нет настоящего имени: «Без имени» или хеш резюме вместо имени."""
+    return (last_name or "").strip() == "Без имени" or \
+        bool(re.fullmatch(r"(HH-)?[0-9a-fA-F]{8,}", (first_name or "").strip()))
 
 
 def write_contacts_to_existing(candidate_id, hh_resume: dict, hh_url: str, photo_b64: str = None) -> str:
     """Открыть контакты по фото и вписать в УЖЕ СОЗДАННУЮ карточку FW.
 
-    Правка существующего кандидата: POST /Candidate/set с полем CandidateId (без него FW
-    создаёт дубль). Телефон/почта ложатся в communicationChannels карточки. Пишем только при
+    Найденные телефон/почта и ФИО (если в карточке имени нет) пишутся через rewrite_fw_card —
+    полным профилем, т.к. правка FW заменяет карточку целиком. Пишем только при
     decision=="attach" (уверенное совпадение). Возвращает decision (attach/ambiguous/none/"").
     """
     if not CONTACTS_SERVICE_URL or not candidate_id:
@@ -209,16 +241,72 @@ def write_contacts_to_existing(candidate_id, hh_resume: dict, hh_url: str, photo
     found = open_contacts_by_photo(hh_resume, hh_url, photo_b64=photo_b64)
     dec = found.get("decision", "none")
     if dec == "attach":
-        arr = _contacts_to_fw_array(found["contacts"])
-        if arr:
-            try:
-                requests.post('https://api.friend.work/Candidate/set',
-                              headers=get_fw_headers(), timeout=30,
-                              json={"CandidateId": int(candidate_id), "Contacts": arr})
+        try:
+            if rewrite_fw_card(candidate_id, hh_resume, found):
                 logger.info(f"contacts written to existing FW card {candidate_id}")
-            except Exception as e:
-                logger.warning(f"write contacts to existing {candidate_id} failed: {e}")
+        except Exception as e:
+            logger.warning(f"write contacts to existing {candidate_id} failed: {e}")
     return dec
+
+
+def _card_contacts(card: dict) -> dict:
+    """Контакты, уже записанные в карточке FW (communicationChannels) → наши категории."""
+    ch = card.get("communicationChannels") or {}
+    out = _empty_contacts()
+    out["phones"] = [p.lstrip("+") for p in ch.get("Phone") or []]
+    out["emails"] = list(ch.get("Email") or [])
+    out["telegram"] = list(ch.get("Telegram") or [])
+    out["whatsapp"] = list(ch.get("WhatsApp") or [])
+    return out
+
+
+def _fw_edit(payload: dict) -> bool:
+    """POST /Candidate/set с CandidateId; True только если FW ответил «Candidate was edited»."""
+    r = requests.post('https://api.friend.work/Candidate/set', headers=get_fw_headers(),
+                      timeout=60, json=payload)
+    res = r.json()
+    msg = (res.get("Result") or res).get("Message", "")
+    if msg != "Candidate was edited":
+        logger.warning(f"FW edit {payload.get('CandidateId')} not applied: {r.status_code} {msg}")
+    return msg == "Candidate was edited"
+
+
+def rewrite_fw_card(candidate_id, hh: dict, found: dict = None) -> bool:
+    """Переписать существующую карточку FW: полный профиль из HH + ФИО и контакты по фото.
+
+    POST /Candidate/set с CandidateId ЗАМЕНЯЕТ карточку целиком (чего нет в запросе — стирается),
+    поэтому шлём полный профиль, сохраняя ФИО рекрутёра и уже записанные контакты. Если в
+    карточке уже есть контакты, сначала шлём профиль без них: иначе FW считает карточку
+    дубликатом самой себя и правку не применяет. Если новый контакт занят другой карточкой —
+    возвращаем карточке её прежние контакты.
+    """
+    cid = int(candidate_id)
+    card = requests.get(f'https://api.friend.work/api/candidates/{cid}',
+                        headers=get_fw_headers(), timeout=20).json()
+    rid = hh.get('id') or (hh.get('alternate_url') or '').rstrip('/').split('/')[-1]
+    candidate, _ = build_fw_candidate(hh, rid)
+    candidate.pop("FileContent", None)  # резюме приложено при создании — не плодим файлы
+    if _name_is_hidden(card.get("firstName"), card.get("lastName")):
+        candidate.update(_name_from_found(found or {}))
+    else:
+        candidate.update({"LastName": card.get("lastName") or "",
+                          "FirstName": card.get("firstName") or "",
+                          "MiddleName": card.get("middleName") or ""})
+    candidate["CandidateId"] = cid
+    base = json.loads(json.dumps({k: v for k, v in candidate.items() if k != "Contacts"}))
+    old = _card_contacts(card)
+    merge_contacts_into_candidate(candidate, old)
+    if found and found.get("decision") == "attach":
+        merge_contacts_into_candidate(candidate, found["contacts"])
+
+    if any(old.values()) and not _fw_edit(base):
+        return False
+    if _fw_edit(candidate):
+        return True
+    if any(old.values()):
+        merge_contacts_into_candidate(base, old)
+        _fw_edit(base)
+    return False
 
 
 def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
@@ -246,7 +334,7 @@ def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
     for p in contacts.get("phones", []):
         add_contact("Phone", p)
     for e in contacts.get("emails", []):
-        add_contact("Email", e)
+        add_contact("E-mail", e)  # именно «E-mail»: ключ «Email» FW молча игнорирует
     for t in contacts.get("telegram", []):
         add_contact("Telegram", t)
     for w in contacts.get("whatsapp", []):
@@ -270,53 +358,12 @@ def merge_contacts_into_candidate(candidate: dict, contacts: dict) -> None:
             add_social("Other", url)
 
 
-def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = False) -> dict:
-    """Import a single HH resume into FriendWork vacancy.
+def build_fw_candidate(hh: dict, hh_resume_id: str):
+    """Полная карточка FW из резюме HH (как при создании). Возвращает (candidate, photo_b64).
 
-    When open_contacts=True, look up extra contacts by the candidate's photo via
-    the Sherlock bot (deduplicated, best-effort) and merge them into the card
-    before sending. Any failure there is swallowed — it never breaks the import.
-
-    Returns: {"ok": bool, "candidate_id": int|None, "message": str}
+    Нужна и для правки существующей карточки: POST /Candidate/set с CandidateId ПЕРЕЗАПИСЫВАЕТ
+    карточку целиком — поля, которых нет в запросе, FW стирает.
     """
-    from hh_api import get_resume
-    
-    # 0. Fetch HH resume first (need alternate_url for dedup)
-    from hh_api import get_resume
-    try:
-        hh = get_resume(hh_resume_id)
-    except Exception as e:
-        return {"ok": False, "candidate_id": None, "message": f"HH error: {e}"}
-    
-    hh_url = hh.get('alternate_url', '')
-    
-    # Check local duplicate log by HH URL
-    import_log = _load_import_log()
-    if hh_url and hh_url in import_log:
-        cid = import_log[hh_url]
-        # Verify candidate still exists in FW
-        try:
-            fw_h = get_fw_headers()
-            check = requests.get(f'https://api.friend.work/Candidate/{cid}/CandidateHistories',
-                                 headers=fw_h, timeout=15)
-            check_data = check.json()
-            histories = check_data.get('CandidateHistories') or []
-            if check.status_code == 200 and len(histories) > 0:
-                # Collect unique vacancy IDs
-                job_ids = list({h.get('JobId') for h in histories if h.get('JobId')})
-                # Дубликат уже в FW — но контакты всё равно открываем и дописываем в его карточку.
-                contacts_dec = write_contacts_to_existing(cid, hh, hh_url) if open_contacts else ""
-                return {"ok": False, "candidate_id": cid,
-                        "job_ids": job_ids,
-                        "message": f"Дубликат: [{cid}]", "contacts": contacts_dec}
-            # Candidate deleted — remove from log and re-import
-            del import_log[hh_url]
-            _save_import_log(import_log)
-        except:
-            return {"ok": False, "candidate_id": cid,
-                    "message": f"Дубликат: [{cid}]"}
-    
-    # 1. HH resume already fetched above
     
     # 2. Download photo as base64
     photo_b64 = None
@@ -465,6 +512,58 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
     if pdf_data_uri:
         candidate["FileContent"] = pdf_data_uri
 
+    return candidate, photo_b64
+
+
+def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = False) -> dict:
+    """Import a single HH resume into FriendWork vacancy.
+
+    When open_contacts=True, look up extra contacts by the candidate's photo via
+    the Sherlock bot (deduplicated, best-effort) and merge them into the card
+    before sending. Any failure there is swallowed — it never breaks the import.
+
+    Returns: {"ok": bool, "candidate_id": int|None, "message": str}
+    """
+    from hh_api import get_resume
+    
+    # 0. Fetch HH resume first (need alternate_url for dedup)
+    from hh_api import get_resume
+    try:
+        hh = get_resume(hh_resume_id)
+    except Exception as e:
+        return {"ok": False, "candidate_id": None, "message": f"HH error: {e}"}
+    
+    hh_url = hh.get('alternate_url', '')
+    
+    # Check local duplicate log by HH URL
+    import_log = _load_import_log()
+    if hh_url and hh_url in import_log:
+        cid = import_log[hh_url]
+        # Verify candidate still exists in FW
+        try:
+            fw_h = get_fw_headers()
+            check = requests.get(f'https://api.friend.work/Candidate/{cid}/CandidateHistories',
+                                 headers=fw_h, timeout=15)
+            check_data = check.json()
+            histories = check_data.get('CandidateHistories') or []
+            if check.status_code == 200 and len(histories) > 0:
+                # Collect unique vacancy IDs
+                job_ids = list({h.get('JobId') for h in histories if h.get('JobId')})
+                # Дубликат уже в FW — но контакты всё равно открываем и дописываем в его карточку.
+                contacts_dec = write_contacts_to_existing(cid, hh, hh_url) if open_contacts else ""
+                return {"ok": False, "candidate_id": cid,
+                        "job_ids": job_ids,
+                        "message": f"Дубликат: [{cid}]", "contacts": contacts_dec}
+            # Candidate deleted — remove from log and re-import
+            del import_log[hh_url]
+            _save_import_log(import_log)
+        except:
+            return {"ok": False, "candidate_id": cid,
+                    "message": f"Дубликат: [{cid}]"}
+    
+    # 1. HH resume already fetched above
+    candidate, photo_b64 = build_fw_candidate(hh, hh_resume_id)
+
     # 12b. Optionally open extra contacts by photo (PAID, deduped, best-effort).
     # Прикрепляем контакты ТОЛЬКО при decision=="attach" (уверенное совпадение).
     # При "ambiguous" (двойники) контакты НЕ прикрепляем, а вешаем заметку на карточку.
@@ -475,6 +574,9 @@ def import_hh_to_fw(hh_resume_id: str, fw_job_id: int, open_contacts: bool = Fal
             contacts_decision = found.get("decision", "none")
             if found["decision"] == "attach" and any(found["contacts"].values()):
                 merge_contacts_into_candidate(candidate, found["contacts"])
+                name = _name_from_found(found)
+                if name and _name_is_hidden(candidate.get("FirstName"), candidate.get("LastName")):
+                    candidate.update(name)
                 logger.info(f"open_contacts: attached contacts for {hh_url}")
             elif found["decision"] == "ambiguous" and found["note"]:
                 # note уже содержит список кандидатов с телефонами для ручной проверки
